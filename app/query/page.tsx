@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import type { Member, Meeting, Department } from '@/lib/types';
+import type { Member, Meeting, Department, Issue } from '@/lib/types';
 import {
   buildRuleQuery,
   buildLLMPrompt,
+  QUERY_SYSTEM_PROMPT,
   type QueryParams,
   type QtypeKey,
   type ToneKey,
@@ -42,6 +43,8 @@ export default function QueryPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [selectedIssueIds, setSelectedIssueIds] = useState<number[]>([]);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [result, setResult] = useState('');
@@ -53,14 +56,21 @@ export default function QueryPage() {
     if (!committee) return;
 
     const fetchAll = async () => {
-      const [{ data: mem }, { data: dep }, { data: mtg }] = await Promise.all([
+      const [{ data: mem }, { data: dep }, { data: mtg }, { data: iss }] = await Promise.all([
         supabase.from('members').select('*').eq('committee', committee),
         supabase.from('departments').select('*').eq('committee', committee),
         supabase.from('meetings').select('*').eq('committee', committee),
+        supabase
+          .from('issues')
+          .select('*')
+          .eq('committee', committee)
+          .order('date', { ascending: false }),
       ]);
       setMembers((mem as Member[]) ?? []);
       setDepartments((dep as Department[]) ?? []);
       setMeetings((mtg as Meeting[]) ?? []);
+      setIssues((iss as Issue[]) ?? []);
+      setSelectedIssueIds([]);
     };
 
     fetchAll();
@@ -68,6 +78,18 @@ export default function QueryPage() {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const toggleIssue = (id: number) =>
+    setSelectedIssueIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  // 선택한 부서가 있으면 해당 부서 지적사항을 우선 노출
+  const relevantIssues = form.dept && form.dept !== '__custom__'
+    ? issues.filter((it) => it.dept === form.dept)
+    : issues;
+
+  const selectedIssues = issues.filter((it) => selectedIssueIds.includes(it.id));
 
   const params: QueryParams = {
     comm: committee,
@@ -86,6 +108,7 @@ export default function QueryPage() {
     fmt: form.fmt,
     itemCount: form.itemCount,
     citeCount: form.citeCount,
+    pastIssues: selectedIssues,
   };
 
   const handleGenerate = async () => {
@@ -107,7 +130,11 @@ export default function QueryPage() {
       const res = await fetch('/api/generate-query', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ engine: form.engine, prompt }),
+        body: JSON.stringify({
+          engine: form.engine,
+          prompt,
+          system: QUERY_SYSTEM_PROMPT,
+        }),
       });
       const data = (await res.json()) as { text?: string; error?: string };
       if (data.error) {
@@ -286,6 +313,62 @@ export default function QueryPage() {
             />
           </div>
         </div>
+
+        {/* Past issues linkage */}
+        {issues.length > 0 && (
+          <div>
+            <label className={labelCls}>
+              기존 지적사항 연계{' '}
+              {selectedIssueIds.length > 0 && (
+                <span className="text-[#1F4E79]">({selectedIssueIds.length}건 선택)</span>
+              )}
+            </label>
+            <p className="text-[11px] text-gray-400 mb-1">
+              선택한 지적사항은 후속 점검·재발 여부 추궁 항목으로 질의서에 반영됩니다.
+              {form.dept && form.dept !== '__custom__' && ` 현재 「${form.dept}」 부서 기준으로 필터링됩니다.`}
+            </p>
+            <div className="border border-gray-200 rounded max-h-44 overflow-auto divide-y divide-gray-100">
+              {relevantIssues.length === 0 ? (
+                <p className="text-xs text-gray-400 px-2 py-3">
+                  해당 부서의 지적사항이 없습니다.
+                </p>
+              ) : (
+                relevantIssues.map((it) => {
+                  const checked = selectedIssueIds.includes(it.id);
+                  const unresolved = it.proc !== '처리완료';
+                  return (
+                    <label
+                      key={it.id}
+                      className="flex items-start gap-2 px-2 py-1.5 text-xs cursor-pointer hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={checked}
+                        onChange={() => toggleIssue(it.id)}
+                      />
+                      <span className="flex-1">
+                        <span className="inline-flex items-center gap-1">
+                          <span className="text-gray-400">{it.date ?? '날짜미상'}</span>
+                          <span className="text-gray-300">·</span>
+                          <span className="font-medium text-gray-700">{it.type}</span>
+                          <span
+                            className="rounded px-1 text-[10px] text-white"
+                            style={{ backgroundColor: unresolved ? '#C62828' : '#2E7D32' }}
+                          >
+                            {it.proc}
+                          </span>
+                          {it.dept && <span className="text-gray-400">{it.dept}</span>}
+                        </span>
+                        <span className="block text-gray-800">{it.content}</span>
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Selects row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

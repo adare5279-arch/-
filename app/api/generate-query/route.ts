@@ -4,8 +4,9 @@ export async function POST(request: Request): Promise<Response> {
       engine: string;
       prompt: string;
       model?: string;
+      system?: string;
     };
-    const { engine, prompt, model } = body;
+    const { engine, prompt, model, system } = body;
 
     if (engine === 'claude') {
       const key = process.env.ANTHROPIC_API_KEY;
@@ -26,6 +27,8 @@ export async function POST(request: Request): Promise<Response> {
         body: JSON.stringify({
           model: model ?? 'claude-sonnet-4-5',
           max_tokens: 4000,
+          temperature: 0.4,
+          ...(system ? { system } : {}),
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -62,7 +65,11 @@ export async function POST(request: Request): Promise<Response> {
         body: JSON.stringify({
           model: model ?? 'gpt-4o',
           max_tokens: 4000,
-          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.4,
+          messages: [
+            ...(system ? [{ role: 'system', content: system }] : []),
+            { role: 'user', content: prompt },
+          ],
         }),
       });
 

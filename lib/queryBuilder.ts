@@ -1,4 +1,4 @@
-import type { Meeting } from '@/lib/types';
+import type { Meeting, Issue } from '@/lib/types';
 
 // ─── Tone definitions ────────────────────────────────────────────────────────
 
@@ -171,7 +171,28 @@ export type QueryParams = {
   fmt: FmtKey;
   itemCount: number;
   citeCount: number;
+  /** 연계할 기존 지적사항 (후속 점검·재발 여부 추궁용) */
+  pastIssues?: Issue[];
 };
+
+// ─── Past-issue history builder ───────────────────────────────────────────────
+
+/**
+ * 선택된 기존 지적사항을 후속 질의에 활용할 수 있도록 사람이 읽기 좋은
+ * 한 줄 요약 목록으로 변환한다. 미처리/처리중 건은 [미시정] 태그를 붙여
+ * 추궁 강도를 높일 수 있도록 한다.
+ */
+export function qBuildIssueHistory(issues: Issue[] | undefined): string[] {
+  if (!issues || issues.length === 0) return [];
+  return issues.map((it) => {
+    const unresolved = it.proc !== '처리완료';
+    const flag = unresolved ? '[미시정] ' : '[시정완료] ';
+    const dateStr = it.date ? `${it.date} ` : '';
+    const deptStr = it.dept ? `${it.dept} · ` : '';
+    const action = it.action ? ` → 조치요구: ${it.action}` : '';
+    return `${flag}${dateStr}${deptStr}(${it.type}) ${it.content}${action}`;
+  });
+}
 
 // ─── Citation builder ─────────────────────────────────────────────────────────
 
@@ -263,9 +284,19 @@ export function buildRuleQuery(params: QueryParams, meetings: Meeting[]): string
     out += `이 사안은 도민의 ${qtype === 'safety' ? '생명과 안전' : '삶의 질'}에 직결되는 중대한 행정 사무입니다.\n\n`;
   }
 
+  // Past-issue history + section numbering via running counter
+  const issueHistory = qBuildIssueHistory(params.pastIssues);
+  const hasFacts = D.useFacts && (facts || context);
+  let sectionNo = 0;
+  const factsSection = hasFacts ? ++sectionNo : 0;
+  const issueSection = ++sectionNo;
+  const histSection = issueHistory.length ? ++sectionNo : 0;
+  const citeSection = citations.length ? ++sectionNo : 0;
+  const demandSection = ++sectionNo;
+
   // Facts section
-  if (D.useFacts && (facts || context)) {
-    out += `【 1. 사실관계 적시 】\n`;
+  if (hasFacts) {
+    out += `【 ${factsSection}. 사실관계 적시 】\n`;
     out += rule41 + '\n';
     out += `${T.cite} 다음과 같은 사실이 확인되었습니다.\n\n`;
     if (facts) {
@@ -280,14 +311,6 @@ export function buildRuleQuery(params: QueryParams, meetings: Meeting[]): string
     }
     out += `${T.pushBefore}\n\n`;
   }
-
-  // Section numbering helpers
-  const hasFacts = D.useFacts && (facts || context);
-  const issueSection = hasFacts ? '2' : '1';
-  const citeSection = hasFacts ? '3' : '2';
-  const demandSection = hasFacts
-    ? citations.length ? '4' : '3'
-    : citations.length ? '3' : '2';
 
   // Issues section
   out += `【 ${issueSection}. 본 위원이 지적하는 문제점 】\n`;
@@ -327,6 +350,21 @@ export function buildRuleQuery(params: QueryParams, meetings: Meeting[]): string
     out += `이전 지적사항에 대한 ${dept}의 시정 이력을 함께 답변해 주시기 바랍니다.\n\n`;
   }
 
+  // Past-issue follow-up section
+  if (issueHistory.length) {
+    const unresolvedCount = (params.pastIssues ?? []).filter((it) => it.proc !== '처리완료').length;
+    out += `\n【 ${histSection}. 기존 지적사항 후속 점검 】\n`;
+    out += rule41 + '\n';
+    out += `본 위원회가 ${dept}에 대해 이미 지적한 다음 사항의 시정 여부를 확인하고자 합니다.\n\n`;
+    issueHistory.forEach((h) => (out += `  ▸ ${h}\n`));
+    out += '\n';
+    if (unresolvedCount > 0) {
+      out += `특히 위 ${unresolvedCount}건은 아직 시정이 완료되지 않은 사안입니다. ${T.cite} 반복·미시정 사유와 책임 소재, 그리고 구체적 시정 일정을 명확히 답변해 주시기 바랍니다.\n\n`;
+    } else {
+      out += `위 지적사항의 시정 조치가 형식적 이행에 그치지 않았는지, 그 실효성과 사후 점검 결과를 함께 답변해 주시기 바랍니다.\n\n`;
+    }
+  }
+
   // Demands section
   const dueDateStr = new Date(Date.now() + 30 * 86400000).toLocaleDateString('ko-KR');
   out += `\n【 ${demandSection}. 본 위원이 요구하는 사항 】\n`;
@@ -351,6 +389,26 @@ export function buildRuleQuery(params: QueryParams, meetings: Meeting[]): string
 }
 
 // ─── LLM prompt builder ───────────────────────────────────────────────────────
+
+/**
+ * LLM 엔진에 system 역할로 전달할 페르소나·품질 지침. user 프롬프트(컨텍스트)와
+ * 분리하여 모델이 역할과 출력 규칙을 안정적으로 따르도록 한다.
+ */
+export const QUERY_SYSTEM_PROMPT = `당신은 대한민국 광역의회(경기도의회)의 베테랑 정책지원관입니다. 행정사무감사에서 의원이 곧바로 낭독·제출할 수 있는 완성도 높은 질의서를 작성합니다.
+
+[전문성]
+- 지방자치법·지방재정법·행정사무감사 및 조사에 관한 조례 등 관련 법령 체계를 숙지하고 있습니다.
+- 막연한 비판이 아니라 "사실 → 문제점 → 답변 요구"의 3단 논리로 압박하며, 수치·근거가 주어지면 반드시 인용합니다.
+- 피감기관이 회피할 수 없도록 질문을 구체적이고 폐쇄형(예/아니오, 일자, 수치 확인)으로 설계합니다.
+
+[금지]
+- 사실에 없는 수치·법조문·사건을 지어내지 않습니다. 주어진 사실관계 범위 내에서만 단정하고, 불확실한 부분은 "확인이 필요하다"는 형태의 답변 요구로 전환합니다.
+- 마크다운 기호(#, *, -, \`\`\`)를 쓰지 않습니다. 불릿은 ○ ▷ ▸, 항목 번호는 첫째/둘째, 요구사항은 가/나/다를 사용합니다.
+- 영어·메타설명·따옴표로 감싼 안내문을 출력하지 않습니다. 오직 질의서 본문만 출력합니다.
+
+[품질 기준]
+- 도입 → (사실관계) → 지적사항 → (기존 지적 후속점검) → (참고 회의록) → 요구사항 → 마무리 서명의 흐름을 지킵니다.
+- 분량·톤·형식 지침을 반드시 준수합니다.`;
 
 export function buildLLMPrompt(params: QueryParams, meetings: Meeting[]): string {
   const comm = params.comm || '해당 위원회';
@@ -392,8 +450,9 @@ export function buildLLMPrompt(params: QueryParams, meetings: Meeting[]): string
   }
 
   const citations = qBuildCitations(comm, citeCount, meetings);
+  const issueHistory = qBuildIssueHistory(params.pastIssues);
 
-  return `당신은 한국 광역의회 정책지원관입니다. 경기도의회 행정사무감사에서 사용할 ${formatDesc} 원고를 작성하세요.
+  return `경기도의회 행정사무감사에서 사용할 ${formatDesc} 원고를 작성하세요.
 
 # 컨텍스트
 - 위원회: ${comm}
@@ -422,14 +481,18 @@ ${context || '(없음)'}
 # 참고 회의록 인용 (반드시 본문에 자연스럽게 포함)
 ${citations.length ? citations.map((c) => '- ' + c).join('\n') : '(없음)'}
 
+# 기존 지적사항 이력 (후속 점검·재발 여부 추궁에 활용)
+${issueHistory.length ? issueHistory.map((h) => '- ' + h).join('\n') : '(없음)'}
+
 # 작성 지침
 1. 한국 의회 행정사무감사 어조 — 정중하지만 단호. 단, 톤이 "날카로움"이면 인사말 없이 본론으로 직진하고 책임 추궁 강도를 높여라.
-2. 구조: 도입 → 사실관계 → 지적사항 ${itemCount}개 (첫째/둘째/.../일곱째 식) → 참고 회의록 → 요구사항(가/나/다) → 마무리.
-3. 각 지적사항은 단순 질문이 아니라 사실 → 문제 → 답변 요구 3단 구조로 작성.
+2. 구조: 도입 → 사실관계 → 지적사항 ${itemCount}개 (첫째/둘째/.../일곱째 식) → ${issueHistory.length ? '기존 지적사항 후속 점검 → ' : ''}참고 회의록 → 요구사항(가/나/다) → 마무리.
+3. 각 지적사항은 단순 질문이 아니라 사실 → 문제 → 답변 요구 3단 구조로 작성하라. 답변 요구는 일자·수치·예/아니오로 답할 수 있는 폐쇄형으로 설계하라.
 4. 회의록 ID(mntsId)는 인용할 때 그대로 포함.
-5. 마지막에 의원명·일자 서명 형식 포함.
-6. 한국어로만 작성. 마크다운 기호 사용 금지(불릿은 ○·▷·가/나/다 사용).
-7. 분량 지침을 반드시 준수하라.
+5. 기존 지적사항 이력이 제공된 경우, [미시정] 표시된 건은 반복·미시정 사유와 시정 일정을 반드시 추궁하고, 형식적 이행 여부를 점검하는 별도 항목을 구성하라.
+6. 마지막에 의원명·일자 서명 형식 포함.
+7. 한국어로만 작성. 마크다운 기호 사용 금지(불릿은 ○·▷·가/나/다 사용).
+8. 분량 지침을 반드시 준수하라.
 
 질의서 본문만 출력. 다른 설명이나 메타 텍스트 금지.`;
 }
