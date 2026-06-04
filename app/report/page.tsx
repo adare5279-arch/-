@@ -5,8 +5,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
-import { ISSUE_TYPES } from '@/lib/types';
-import type { Issue, Witness } from '@/lib/types';
+import {
+  ISSUE_TYPES,
+  ISSUE_PROCS,
+  WITNESS_KINDS,
+  WITNESS_ATTENDS,
+  REQUEST_STATUSES,
+} from '@/lib/types';
+import type { Issue, Witness, MaterialRequest } from '@/lib/types';
 
 type SectionKind = 'text' | 'issues' | 'witnesses';
 
@@ -42,6 +48,7 @@ export default function ReportPage() {
   const { committee } = useCommittee();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [witnesses, setWitnesses] = useState<Witness[]>([]);
+  const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [sections, setSections] = useState<SectionMap>({});
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
@@ -66,13 +73,15 @@ export default function ReportPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [issRes, witRes] = await Promise.all([
+      const [issRes, witRes, reqRes] = await Promise.all([
         supabase.from('issues').select('*').eq('committee', committee).order('date'),
         supabase.from('witnesses').select('*').eq('committee', committee).order('dt'),
+        supabase.from('material_requests').select('*').eq('committee', committee),
       ]);
       if (cancelled) return;
       setIssues((issRes.data as Issue[]) ?? []);
       setWitnesses((witRes.data as Witness[]) ?? []);
+      setRequests((reqRes.data as MaterialRequest[]) ?? []);
       await loadSections();
       if (!cancelled) setLoading(false);
     }
@@ -93,10 +102,87 @@ export default function ReportPage() {
     ]);
   }
 
+  const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
+
+  // ── 자동 집계 ──────────────────────────────────────────────
   const typeCounts = ISSUE_TYPES.map((t) => ({
     type: t,
     count: issues.filter((i) => i.type === t).length,
   })).filter((x) => x.count > 0);
+
+  const procCounts = ISSUE_PROCS.map((p) => ({
+    proc: p,
+    count: issues.filter((i) => i.proc === p).length,
+  }));
+  const issuesDone = issues.filter((i) => i.proc === '처리완료').length;
+  const issueRate = pct(issuesDone, issues.length);
+
+  const deptCounts = (() => {
+    const map = new Map<string, number>();
+    issues.forEach((i) => {
+      const d = i.dept?.trim() || '미지정';
+      map.set(d, (map.get(d) ?? 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([dept, count]) => ({ dept, count }))
+      .sort((a, b) => b.count - a.count);
+  })();
+
+  const witnessKindCounts = WITNESS_KINDS.map((k) => ({
+    kind: k,
+    count: witnesses.filter((w) => w.kind === k).length,
+  }));
+  const witnessAttendCounts = WITNESS_ATTENDS.map((a) => ({
+    attend: a,
+    count: witnesses.filter((w) => w.attend === a).length,
+  }));
+  const witnessAttended = witnesses.filter((w) => w.attend === '출석완료').length;
+  const witnessRate = pct(witnessAttended, witnesses.length);
+
+  const reqStatusCounts = REQUEST_STATUSES.map((s) => ({
+    status: s,
+    count: requests.filter((r) => r.status === s).length,
+  }));
+  const reqSubmitted = requests.filter((r) => r.status === '제출완료').length;
+  const reqRate = pct(reqSubmitted, requests.length);
+
+  // 총평 초안 자동 생성 문구
+  const autoSummary = (() => {
+    const year = new Date().getFullYear();
+    const parts: string[] = [];
+    parts.push(`${committee}는 ${year}년도 행정사무감사를 실시하였다.`);
+    if (issues.length > 0) {
+      const typeStr = typeCounts.map((t) => `${t.type} ${t.count}건`).join(', ');
+      parts.push(
+        `감사 결과 총 ${issues.length}건의 지적사항을 발굴하였으며, 유형별로는 ${typeStr}이다.`
+      );
+      const proc = procCounts
+        .filter((p) => p.count > 0)
+        .map((p) => `${p.proc} ${p.count}건`)
+        .join(', ');
+      parts.push(`처리현황은 ${proc}으로, 처리율은 ${issueRate}%이다.`);
+      if (deptCounts.length > 0) {
+        const top = deptCounts[0];
+        parts.push(`부서별로는 ${top.dept}이(가) ${top.count}건으로 가장 많은 지적을 받았다.`);
+      }
+    } else {
+      parts.push('금번 감사에서 시정·처리를 요구하는 지적사항은 발굴되지 않았다.');
+    }
+    if (witnesses.length > 0) {
+      parts.push(
+        `증인·참고인은 총 ${witnesses.length}명을 채택하여 ${witnessAttended}명이 출석하였다(출석률 ${witnessRate}%).`
+      );
+    }
+    if (requests.length > 0) {
+      parts.push(
+        `자료요구는 총 ${requests.length}건 중 ${reqSubmitted}건이 제출 완료되었다(제출률 ${reqRate}%).`
+      );
+    }
+    parts.push(
+      '본 위원회는 지적사항에 대한 집행부의 성실한 시정 조치와 그 결과의 차기 회기 보고를 요구한다.'
+    );
+    return parts.join(' ');
+  })();
 
   if (loading) {
     return (
@@ -171,10 +257,56 @@ export default function ReportPage() {
         {/* Summary box */}
         <section className="print:break-inside-avoid">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <SummaryCard label="지적사항" value={`${issues.length}건`} sub={`처리완료 ${issues.filter((i) => i.proc === '처리완료').length}`} />
-            <SummaryCard label="증인·참고인" value={`${witnesses.length}명`} sub={`출석완료 ${witnesses.filter((w) => w.attend === '출석완료').length}`} />
+            <SummaryCard label="지적사항" value={`${issues.length}건`} sub={`처리완료 ${issuesDone} (${issueRate}%)`} />
+            <SummaryCard label="증인·참고인" value={`${witnesses.length}명`} sub={`출석 ${witnessAttended} (${witnessRate}%)`} />
+            <SummaryCard label="자료요구" value={`${requests.length}건`} sub={`제출 ${reqSubmitted} (${reqRate}%)`} />
             <SummaryCard label="유형 분포" value={`${typeCounts.length}종`} sub={typeCounts.map((t) => `${t.type}${t.count}`).join(' ') || '—'} />
-            <SummaryCard label="작성 위원회" value={committee.replace('위원회', '')} sub="위원회" />
+          </div>
+        </section>
+
+        {/* 자동 집계 현황 */}
+        <section className="space-y-4 print:break-inside-avoid">
+          <h3 className="text-lg font-bold text-gray-900 border-l-4 border-[#2E7D32] pl-3">
+            감사 결과 자동 집계
+          </h3>
+          <p className="text-xs text-gray-400 print:hidden">
+            지적사항·증인·자료요구 화면의 데이터를 실시간으로 집계한 표입니다.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <CountTable
+              title="지적사항 유형별"
+              rows={ISSUE_TYPES.map((t) => ({
+                label: t,
+                count: issues.filter((i) => i.type === t).length,
+              }))}
+              total={issues.length}
+            />
+            <CountTable
+              title="지적사항 처리상태별"
+              rows={procCounts.map((p) => ({ label: p.proc, count: p.count }))}
+              total={issues.length}
+              footnote={`처리율 ${issueRate}%`}
+            />
+            <CountTable
+              title="부서별 지적사항"
+              rows={deptCounts.map((d) => ({ label: d.dept, count: d.count }))}
+              total={issues.length}
+            />
+            <CountTable
+              title="증인·참고인 출석현황"
+              rows={[
+                ...witnessKindCounts.map((k) => ({ label: k.kind, count: k.count })),
+                ...witnessAttendCounts.map((a) => ({ label: a.attend, count: a.count })),
+              ]}
+              total={witnesses.length}
+              footnote={`출석률 ${witnessRate}%`}
+            />
+            <CountTable
+              title="자료요구 제출현황"
+              rows={reqStatusCounts.map((s) => ({ label: s.status, count: s.count }))}
+              total={requests.length}
+              footnote={`제출률 ${reqRate}%`}
+            />
           </div>
         </section>
 
@@ -191,6 +323,7 @@ export default function ReportPage() {
                 section={s}
                 row={getRow(s.key)}
                 onSaved={loadSections}
+                autofill={s.key === 'summary' ? autoSummary : undefined}
               />
             )}
 
@@ -312,11 +445,13 @@ function SectionEditor({
   section,
   row,
   onSaved,
+  autofill,
 }: {
   committee: string;
   section: SectionDef;
   row: SectionRow;
   onSaved: () => Promise<void> | void;
+  autofill?: string;
 }) {
   const [content, setContent] = useState(row.content);
   const [fileName, setFileName] = useState<string | null>(row.file_name);
@@ -412,7 +547,7 @@ function SectionEditor({
         placeholder={section.kind === 'text' ? '본문을 입력하거나 파일을 업로드하세요.' : '표 위에 들어갈 보충 설명 (선택)'}
         className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40"
       />
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={handleSave}
           disabled={busy}
@@ -420,6 +555,19 @@ function SectionEditor({
         >
           저장
         </button>
+        {autofill && (
+          <button
+            onClick={() => {
+              if (content.trim() && !confirm('기존 내용을 자동 집계 문구로 덮어쓸까요?')) return;
+              setContent(autofill);
+              setStatus('자동 집계 문구를 채웠습니다. 검토 후 저장하세요.');
+            }}
+            disabled={busy}
+            className="rounded border border-[#2E7D32] px-4 py-1.5 text-xs font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-50"
+          >
+            총평 초안 자동 생성
+          </button>
+        )}
         {status && <span className="text-xs text-gray-500">{status}</span>}
       </div>
     </div>
@@ -427,6 +575,61 @@ function SectionEditor({
 }
 
 /* ───────────────────────── Bits ───────────────────────── */
+
+function CountTable({
+  title,
+  rows,
+  total,
+  footnote,
+}: {
+  title: string;
+  rows: { label: string; count: number }[];
+  total: number;
+  footnote?: string;
+}) {
+  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return (
+    <div className="print:break-inside-avoid">
+      <div className="flex items-baseline justify-between mb-1">
+        <h4 className="text-sm font-semibold text-gray-800">{title}</h4>
+        {footnote && <span className="text-xs font-medium text-[#2E7D32]">{footnote}</span>}
+      </div>
+      <table className="w-full text-sm border border-gray-400 border-collapse">
+        <thead>
+          <tr className="bg-gray-100 text-left">
+            <th className="border border-gray-400 py-1.5 px-3 font-semibold">구분</th>
+            <th className="border border-gray-400 py-1.5 px-3 font-semibold whitespace-nowrap w-16 text-right">건수</th>
+            <th className="border border-gray-400 py-1.5 px-3 font-semibold whitespace-nowrap w-16 text-right">비율</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="border border-gray-400 py-2 px-3 text-center text-gray-400">
+                데이터 없음
+              </td>
+            </tr>
+          ) : (
+            rows.map((r) => (
+              <tr key={r.label}>
+                <td className="border border-gray-400 py-1.5 px-3 text-gray-700">{r.label}</td>
+                <td className="border border-gray-400 py-1.5 px-3 text-right text-gray-800">{r.count}</td>
+                <td className="border border-gray-400 py-1.5 px-3 text-right text-gray-500">{pct(r.count)}%</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+        <tfoot>
+          <tr className="bg-gray-50 font-semibold">
+            <td className="border border-gray-400 py-1.5 px-3 text-gray-800">합계</td>
+            <td className="border border-gray-400 py-1.5 px-3 text-right text-gray-900">{total}</td>
+            <td className="border border-gray-400 py-1.5 px-3 text-right text-gray-500">100%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
 
 function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
