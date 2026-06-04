@@ -1,6 +1,6 @@
 // Client-only text extraction from uploaded files.
-// Supported for in-browser body extraction: txt/csv/md/json, docx (mammoth), pdf (pdf.js).
-// Not extractable in-browser (original is stored & linked only): hwp/hwpx/doc/xlsx/etc.
+// Supported for in-browser body extraction: txt/csv/md/json, docx (mammoth), pdf (pdf.js), xlsx/xls (SheetJS).
+// Not extractable in-browser (original is stored & linked only): hwp/hwpx/doc/images/etc.
 
 export type ExtractResult = {
   /** Extracted plain text (empty when unsupported). */
@@ -30,6 +30,19 @@ export async function extractText(file: File): Promise<ExtractResult> {
     return { text: (result?.value ?? '').trim(), supported: true, ext };
   }
 
+  if (ext === 'xlsx' || ext === 'xls') {
+    const XLSX = await import('xlsx');
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const parts: string[] = [];
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(ws).trim();
+      if (csv) parts.push(`[${sheetName}]\n${csv}`);
+    }
+    return { text: parts.join('\n\n').trim(), supported: true, ext };
+  }
+
   if (ext === 'pdf') {
     const pdfjs = await import('pdfjs-dist');
     pdfjs.GlobalWorkerOptions.workerSrc =
@@ -48,9 +61,9 @@ export async function extractText(file: File): Promise<ExtractResult> {
     return { text: text.trim(), supported: true, ext };
   }
 
-  // hwp, hwpx, doc, xlsx, images, ... — cannot extract in browser
+  // hwp, hwpx, doc, images, ... — cannot extract in browser
   return { text: '', supported: false, ext };
 }
 
 export const UPLOAD_ACCEPT =
-  '.txt,.csv,.md,.json,.docx,.pdf,.hwp,.hwpx,.doc';
+  '.txt,.csv,.md,.json,.docx,.doc,.pdf,.xlsx,.xls,.hwp,.hwpx';

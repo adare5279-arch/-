@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
+import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { ISSUE_TYPES, ISSUE_PROCS } from '@/lib/types';
 import type { Issue, Department } from '@/lib/types';
 
@@ -27,6 +28,8 @@ type FormState = {
   content: string;
   action: string;
   proc: string;
+  file_url: string;
+  file_name: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -36,6 +39,8 @@ const EMPTY_FORM: FormState = {
   content: '',
   action: '',
   proc: '미처리',
+  file_url: '',
+  file_name: '',
 };
 
 export default function IssuesPage() {
@@ -46,6 +51,8 @@ export default function IssuesPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileMsg, setFileMsg] = useState('');
 
   const fetchIssues = useCallback(async () => {
     const { data, error } = await supabase
@@ -79,6 +86,43 @@ export default function IssuesPage() {
     return () => { cancelled = true; };
   }, [committee, fetchIssues]);
 
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileBusy(true);
+    setFileMsg('파일 분석 중...');
+    try {
+      const { text, supported, ext } = await extractText(file);
+      const path = `issues/${crypto.randomUUID()}.${ext || 'bin'}`;
+      const { error: upErr } = await supabase.storage
+        .from('report-files')
+        .upload(path, file, { upsert: true });
+      let fileUrl = '';
+      if (upErr) {
+        console.error('Storage upload error:', upErr);
+      } else {
+        fileUrl = supabase.storage.from('report-files').getPublicUrl(path).data.publicUrl;
+      }
+      setForm((f) => ({
+        ...f,
+        content:
+          supported && text ? (f.content ? `${f.content}\n${text}` : text) : f.content,
+        file_url: fileUrl,
+        file_name: file.name,
+      }));
+      setFileMsg(
+        supported
+          ? `본문 추출 완료 (.${ext})`
+          : `원본 첨부됨 (.${ext}) — 본문은 직접 입력하세요`
+      );
+    } catch (err) {
+      console.error('File processing error:', err);
+      setFileMsg('파일 처리 중 오류가 발생했습니다.');
+    } finally {
+      setFileBusy(false);
+    }
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!form.content.trim()) return;
@@ -91,6 +135,8 @@ export default function IssuesPage() {
       content: form.content.trim(),
       action: form.action || null,
       proc: form.proc,
+      file_url: form.file_url || null,
+      file_name: form.file_name || null,
     });
     setSaving(false);
     if (error) {
@@ -99,6 +145,7 @@ export default function IssuesPage() {
       return;
     }
     setForm(EMPTY_FORM);
+    setFileMsg('');
     setShowForm(false);
     await fetchIssues();
   }
@@ -132,6 +179,8 @@ export default function IssuesPage() {
       { header: '지적내용', value: (r) => r.content },
       { header: '조치요구', value: (r) => r.action ?? '' },
       { header: '처리상태', value: (r) => r.proc },
+      { header: '첨부파일', value: (r) => r.file_name ?? '' },
+      { header: '첨부링크', value: (r) => r.file_url ?? '' },
     ]);
   }
 
@@ -199,6 +248,46 @@ export default function IssuesPage() {
               ))}
             </select>
           </label>
+          <div className="sm:col-span-2 rounded-lg border border-dashed border-[#1F4E79]/40 bg-[#1F4E79]/5 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-medium text-[#1F4E79]">
+                파일 첨부 (한글·엑셀·워드·PDF 등)
+              </span>
+              <input
+                type="file"
+                accept={UPLOAD_ACCEPT}
+                onChange={handleFile}
+                disabled={fileBusy}
+                className="text-xs file:mr-2 file:rounded file:border-0 file:bg-[#1F4E79] file:px-3 file:py-1.5 file:text-white file:cursor-pointer disabled:opacity-50"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              txt/csv/docx/pdf/xlsx는 본문이 자동 추출되어 아래 지적내용에 채워집니다.
+              한글(.hwp)·.doc 등은 원본 파일이 첨부 링크로 보관됩니다.
+            </p>
+            {fileMsg && (
+              <p className={`text-xs ${fileBusy ? 'text-[#B45309]' : 'text-[#2E7D32]'}`}>
+                {fileMsg}
+              </p>
+            )}
+            {form.file_name && (
+              <p className="text-xs text-gray-600">
+                첨부:{' '}
+                {form.file_url ? (
+                  <a
+                    href={form.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#1F4E79] underline"
+                  >
+                    {form.file_name}
+                  </a>
+                ) : (
+                  form.file_name
+                )}
+              </p>
+            )}
+          </div>
           <label className="text-sm text-gray-700 flex flex-col gap-1 sm:col-span-2">
             지적내용
             <textarea value={form.content} onChange={setField('content')} className={inputCls} rows={2} required />
@@ -235,6 +324,7 @@ export default function IssuesPage() {
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">유형</th>
                   <th className="py-2 px-3 font-semibold">지적내용</th>
                   <th className="py-2 px-3 font-semibold">조치요구</th>
+                  <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">처리</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
                 </tr>
@@ -254,6 +344,21 @@ export default function IssuesPage() {
                     </td>
                     <td className="py-2 px-3 text-gray-800 max-w-xs">{r.content}</td>
                     <td className="py-2 px-3 text-gray-600 max-w-xs">{r.action ?? '—'}</td>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      {r.file_url ? (
+                        <a
+                          href={r.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#1F4E79] underline hover:opacity-80"
+                          title={r.file_name ?? ''}
+                        >
+                          파일
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3">
                       <select
                         value={r.proc}
