@@ -47,6 +47,12 @@ export default function DocsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // 검색·필터
+  const [q, setQ] = useState('');
+  const [deptFilter, setDeptFilter] = useState('전체');
+  const [memberFilter, setMemberFilter] = useState('전체');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const fetchRequests = useCallback(async () => {
     const { data, error } = await supabase
@@ -130,10 +136,34 @@ export default function DocsPage() {
     }
   }
 
-  const filtered =
-    statusFilter === '전체'
-      ? requests
-      : requests.filter(r => r.status === statusFilter);
+  const filtered = requests.filter(r => {
+    if (statusFilter !== '전체' && r.status !== statusFilter) return false;
+    if (deptFilter !== '전체' && r.dept !== deptFilter) return false;
+    if (memberFilter !== '전체' && r.member !== memberFilter) return false;
+    if (fromDate && (!r.req_date || r.req_date < fromDate)) return false;
+    if (toDate && (!r.req_date || r.req_date > toDate)) return false;
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      const hay = `${r.title} ${r.note ?? ''} ${r.dept ?? ''} ${r.member ?? ''}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+
+  const filterActive =
+    q.trim() !== '' ||
+    deptFilter !== '전체' ||
+    memberFilter !== '전체' ||
+    fromDate !== '' ||
+    toDate !== '';
+
+  function resetFilters() {
+    setQ('');
+    setDeptFilter('전체');
+    setMemberFilter('전체');
+    setFromDate('');
+    setToDate('');
+  }
 
   function handleExport() {
     exportSheet(`자료요구_${committee}`, '자료요구', filtered, [
@@ -258,6 +288,52 @@ export default function DocsPage() {
         ))}
       </div>
 
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-3 flex flex-wrap items-end gap-2">
+        <label className="text-xs text-gray-600 flex flex-col gap-1 grow min-w-[160px]">
+          검색
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="요구자료명·비고·부서·의원"
+            className={inputCls}
+          />
+        </label>
+        <label className="text-xs text-gray-600 flex flex-col gap-1">
+          의원
+          <select value={memberFilter} onChange={e => setMemberFilter(e.target.value)} className={inputCls}>
+            <option value="전체">전체</option>
+            {members.map(m => (
+              <option key={m.id} value={m.name}>{m.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-600 flex flex-col gap-1">
+          담당부서
+          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className={inputCls}>
+            <option value="전체">전체</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.name}>{d.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-600 flex flex-col gap-1">
+          요구일(시작)
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className={inputCls} />
+        </label>
+        <label className="text-xs text-gray-600 flex flex-col gap-1">
+          요구일(종료)
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className={inputCls} />
+        </label>
+        {filterActive && (
+          <button
+            onClick={resetFilters}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+          >
+            초기화
+          </button>
+        )}
+      </div>
+
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
         {loading ? (
           <p className="text-sm text-gray-500 py-4 text-center">불러오는 중...</p>
@@ -265,7 +341,10 @@ export default function DocsPage() {
           <p className="text-sm text-gray-500 py-6 text-center">자료요구가 없습니다.</p>
         ) : (
           <div className="overflow-x-auto">
-            <p className="text-sm text-gray-600 mb-3">총 {filtered.length}건</p>
+            <p className="text-sm text-gray-600 mb-3">
+              총 {filtered.length}건
+              {filterActive || statusFilter !== '전체' ? ` (전체 ${requests.length}건)` : ''}
+            </p>
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-gray-700">

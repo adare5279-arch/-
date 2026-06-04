@@ -1,6 +1,6 @@
 // Client-only text extraction from uploaded files.
-// Supported for in-browser body extraction: txt/csv/md/json, docx (mammoth), pdf (pdf.js), xlsx/xls (SheetJS).
-// Not extractable in-browser (original is stored & linked only): hwp/hwpx/doc/images/etc.
+// Supported for in-browser body extraction: txt/csv/md/json, docx (mammoth), pdf (pdf.js), xlsx/xls (SheetJS), hwp (hwp.js).
+// Not extractable in-browser (original is stored & linked only): hwpx/doc/images/etc.
 
 export type ExtractResult = {
   /** Extracted plain text (empty when unsupported). */
@@ -61,7 +61,34 @@ export async function extractText(file: File): Promise<ExtractResult> {
     return { text: text.trim(), supported: true, ext };
   }
 
-  // hwp, hwpx, doc, images, ... — cannot extract in browser
+  if (ext === 'hwp') {
+    // HWP 5.0 (CFB) body text via hwp.js. Older HWP 3.x or HWPX are not supported here.
+    try {
+      const { parse } = await import('hwp.js');
+      const arrayBuffer = await file.arrayBuffer();
+      const doc = parse(new Uint8Array(arrayBuffer), { type: 'array' });
+      const lines: string[] = [];
+      for (const section of doc.sections) {
+        for (const paragraph of section.content) {
+          let line = '';
+          for (const ch of paragraph.content) {
+            // Only plain text chars carry a string value; control/inline chars are numeric.
+            if (typeof ch.value === 'string' && ch.value.charCodeAt(0) >= 32) {
+              line += ch.value;
+            }
+          }
+          const trimmed = line.trimEnd();
+          if (trimmed) lines.push(trimmed);
+        }
+      }
+      return { text: lines.join('\n').trim(), supported: true, ext };
+    } catch (err) {
+      console.error('HWP parse failed:', err);
+      return { text: '', supported: false, ext };
+    }
+  }
+
+  // hwpx, doc, images, ... — cannot extract in browser
   return { text: '', supported: false, ext };
 }
 

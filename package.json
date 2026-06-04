@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "hwp.js": "^0.0.3",
     "mammoth": "^1.12.0",
     "next": "16.2.7",
     "pdfjs-dist": "^6.0.227",

@@ -79,6 +79,8 @@ export type Witness = {
   attend: string;
   phone: string | null;
   note: string | null;
+  file_url: string | null;
+  file_name: string | null;
   created_at: string;
 };
 
