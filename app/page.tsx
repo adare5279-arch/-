@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import type { MaterialRequest } from '@/lib/types';
+import type { MaterialRequest, Issue, Witness } from '@/lib/types';
 
 export default function DashboardPage() {
   const { committee } = useCommittee();
 
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [witnesses, setWitnesses] = useState<Witness[]>([]);
   const [meetingCount, setMeetingCount] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ export default function DashboardPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [reqRes, meetRes, memRes] = await Promise.all([
+        const [reqRes, meetRes, memRes, issueRes, witRes] = await Promise.all([
           supabase
             .from('material_requests')
             .select('*')
@@ -35,6 +37,14 @@ export default function DashboardPage() {
             .from('members')
             .select('id', { count: 'exact', head: true })
             .eq('committee', committee),
+          supabase
+            .from('issues')
+            .select('id,proc,type')
+            .eq('committee', committee),
+          supabase
+            .from('witnesses')
+            .select('id,attend,kind')
+            .eq('committee', committee),
         ]);
 
         if (cancelled) return;
@@ -42,6 +52,8 @@ export default function DashboardPage() {
         setRequests((reqRes.data as MaterialRequest[]) ?? []);
         setMeetingCount(meetRes.count ?? 0);
         setMemberCount(memRes.count ?? 0);
+        setIssues((issueRes.data as Issue[]) ?? []);
+        setWitnesses((witRes.data as Witness[]) ?? []);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -78,6 +90,42 @@ export default function DashboardPage() {
     { label: '마감임박', value: urgentCount, color: '#B45309' },
   ];
 
+  // 감사 진행 현황 통계
+  const issuesTotal = issues.length;
+  const issuesDone = issues.filter(i => i.proc === '처리완료').length;
+  const witnessTotal = witnesses.length;
+  const witnessAttended = witnesses.filter(w => w.attend === '출석완료').length;
+
+  const pct = (num: number, den: number) =>
+    den > 0 ? Math.round((num / den) * 100) : 0;
+
+  const progressBars = [
+    {
+      label: '자료 제출률',
+      done: submittedCount,
+      total: totalCount,
+      rate: pct(submittedCount, totalCount),
+      color: '#2E7D32',
+      caption: `${submittedCount} / ${totalCount}건 제출`,
+    },
+    {
+      label: '지적사항 처리율',
+      done: issuesDone,
+      total: issuesTotal,
+      rate: pct(issuesDone, issuesTotal),
+      color: '#1F4E79',
+      caption: `${issuesDone} / ${issuesTotal}건 처리완료`,
+    },
+    {
+      label: '증인·참고인 출석률',
+      done: witnessAttended,
+      total: witnessTotal,
+      rate: pct(witnessAttended, witnessTotal),
+      color: '#B45309',
+      caption: `${witnessAttended} / ${witnessTotal}명 출석`,
+    },
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -110,7 +158,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Small stats row */}
-          <div className="flex gap-6 text-sm text-gray-600">
+          <div className="flex flex-wrap gap-6 text-sm text-gray-600">
             <span>
               회의록{' '}
               <strong className="text-[#1F4E79] font-semibold">{meetingCount}건</strong>
@@ -119,6 +167,41 @@ export default function DashboardPage() {
               의원{' '}
               <strong className="text-[#1F4E79] font-semibold">{memberCount}명</strong>
             </span>
+            <span>
+              지적사항{' '}
+              <strong className="text-[#1F4E79] font-semibold">{issuesTotal}건</strong>
+            </span>
+            <span>
+              증인·참고인{' '}
+              <strong className="text-[#1F4E79] font-semibold">{witnessTotal}명</strong>
+            </span>
+          </div>
+
+          {/* 감사 진행 현황 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-4">
+            <h2 className="text-base font-semibold text-[#1F4E79]">감사 진행 현황</h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {progressBars.map(bar => (
+                <div key={bar.label} className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm text-gray-600">{bar.label}</span>
+                    <span
+                      className="text-lg font-bold"
+                      style={{ color: bar.color }}
+                    >
+                      {bar.rate}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${bar.rate}%`, backgroundColor: bar.color }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-400">{bar.caption}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Pending table */}
