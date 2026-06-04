@@ -5,12 +5,32 @@ import { usePathname } from 'next/navigation';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { COMMITTEES } from '@/lib/types';
 
-const NAV_ITEMS = [
-  { label: '대시보드', href: '/' },
-  { label: '회의록', href: '/meetings' },
-  { label: '의원명부', href: '/members' },
-  { label: '자료요구', href: '/docs' },
-  { label: 'AI 질의서', href: '/query' },
+const NAV_SECTIONS = [
+  {
+    title: '종합 현황',
+    items: [{ label: '대시보드', href: '/' }],
+  },
+  {
+    title: '자료 · 부서',
+    items: [
+      { label: '자료요구', href: '/docs' },
+      { label: '소관부서', href: '/dept' },
+      { label: '의원명부', href: '/members' },
+      { label: '회의록', href: '/meetings' },
+    ],
+  },
+  {
+    title: '감사 진행',
+    items: [
+      { label: '지적사항', href: '/issues' },
+      { label: '증인·참고인', href: '/witnesses' },
+      { label: '결과보고서', href: '/report' },
+    ],
+  },
+  {
+    title: '도구',
+    items: [{ label: 'AI 질의서', href: '/query' }],
+  },
 ] as const;
 
 export default function Sidebar() {
@@ -47,25 +67,32 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
-        {NAV_ITEMS.map(({ label, href }) => {
-          const isActive =
-            href === '/' ? pathname === '/' : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={[
-                'block rounded px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/80 hover:bg-white/10 hover:text-white',
-              ].join(' ')}
-            >
-              {label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.title} className="mb-2">
+            <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-white/50">
+              {section.title}
+            </p>
+            {section.items.map(({ label, href }) => {
+              const isActive =
+                href === '/' ? pathname === '/' : pathname.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={[
+                    'block rounded px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-white/15 text-white'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white',
+                  ].join(' ')}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
     </aside>
   );

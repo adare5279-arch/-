@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
+import { exportSheet } from '@/lib/exportXlsx';
 import type { Member } from '@/lib/types';
 
 const ROLE_RANK: Record<string, number> = {
@@ -136,6 +137,15 @@ export default function MembersPage() {
     m => m.party !== '민주' && m.party !== '국민의힘'
   ).length;
 
+  function handleExport() {
+    exportSheet(`의원명부_${committee}`, '의원명부', members, [
+      { header: '이름', value: m => m.name },
+      { header: '직위', value: m => m.role },
+      { header: '정당', value: m => m.party ?? '무소속' },
+      { header: '선거구', value: m => m.district ?? '' },
+    ]);
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -147,6 +157,14 @@ export default function MembersPage() {
           )}
         </div>
 
+        <div className="flex items-center gap-2">
+        <button
+          onClick={handleExport}
+          disabled={members.length === 0}
+          className="rounded-lg border border-[#2E7D32] bg-white px-3 py-1.5 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+        >
+          엑셀 저장
+        </button>
         {/* View toggle */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
           <button
@@ -169,6 +187,7 @@ export default function MembersPage() {
           >
             표 보기
           </button>
+        </div>
         </div>
       </div>
 

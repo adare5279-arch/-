@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
+import { exportSheet } from '@/lib/exportXlsx';
 import type { Meeting } from '@/lib/types';
 
 type YearFilter = '전체' | 2023 | 2024 | 2025;
@@ -42,13 +43,28 @@ export default function MeetingsPage() {
       ? meetings
       : meetings.filter((m) => m.year === yearFilter);
 
+  function handleExport() {
+    exportSheet(`회의록_${committee}`, '회의록', filtered, [
+      { header: '연도', value: (m) => m.year },
+      { header: '위원회', value: (m) => m.committee },
+      { header: '회의일자', value: (m) => m.date },
+    ]);
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Heading */}
-      <div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold text-[#1F4E79]">
           회의록{committee ? ` — ${committee}` : ''}
         </h1>
+        <button
+          onClick={handleExport}
+          disabled={filtered.length === 0}
+          className="rounded-lg border border-[#2E7D32] bg-white px-4 py-2 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+        >
+          엑셀 저장
+        </button>
       </div>
 
       {/* Year filter */}

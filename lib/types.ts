@@ -53,3 +53,34 @@ export const COMMITTEES = [
 ] as const;
 
 export const REQUEST_STATUSES = ["미제출", "제출완료", "부분제출", "제출불가"] as const;
+
+export type Issue = {
+  id: number;
+  committee: string | null;
+  date: string | null;
+  dept: string | null;
+  type: string;
+  content: string;
+  action: string | null;
+  proc: string;
+  created_at: string;
+};
+
+export type Witness = {
+  id: number;
+  committee: string | null;
+  kind: string;
+  name: string;
+  org: string | null;
+  pos: string | null;
+  dt: string | null;
+  attend: string;
+  phone: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export const ISSUE_TYPES = ["위법", "부당", "개선", "권고", "주의"] as const;
+export const ISSUE_PROCS = ["미처리", "처리중", "처리완료"] as const;
+export const WITNESS_KINDS = ["증인", "참고인"] as const;
+export const WITNESS_ATTENDS = ["출석예정", "출석완료", "불출석"] as const;

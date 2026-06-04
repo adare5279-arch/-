@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { REQUEST_STATUSES } from '@/lib/types';
+import { exportSheet } from '@/lib/exportXlsx';
 import type { MaterialRequest, Member, Department } from '@/lib/types';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -134,6 +135,18 @@ export default function DocsPage() {
       ? requests
       : requests.filter(r => r.status === statusFilter);
 
+  function handleExport() {
+    exportSheet(`자료요구_${committee}`, '자료요구', filtered, [
+      { header: '의원', value: r => r.member ?? '' },
+      { header: '담당부서', value: r => r.dept ?? '' },
+      { header: '요구자료명', value: r => r.title },
+      { header: '요구일', value: r => r.req_date ?? '' },
+      { header: '마감일', value: r => r.due_date ?? '' },
+      { header: '상태', value: r => r.status },
+      { header: '비고', value: r => r.note ?? '' },
+    ]);
+  }
+
   const setField = (k: keyof FormState) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -147,12 +160,21 @@ export default function DocsPage() {
         <h1 className="text-xl font-bold text-[#1F4E79]">
           자료요구{committee ? ` — ${committee}` : ''}
         </h1>
-        <button
-          onClick={() => setShowForm(s => !s)}
-          className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
-        >
-          {showForm ? '닫기' : '+ 자료요구 추가'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExport}
+            disabled={filtered.length === 0}
+            className="rounded-lg border border-[#2E7D32] bg-white px-4 py-2 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+          >
+            엑셀 저장
+          </button>
+          <button
+            onClick={() => setShowForm(s => !s)}
+            className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
+          >
+            {showForm ? '닫기' : '+ 자료요구 추가'}
+          </button>
+        </div>
       </div>
 
       {showForm && (
