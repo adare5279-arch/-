@@ -12,6 +12,7 @@ const NAV_SECTIONS = [
     items: [
       { label: '대시보드', href: '/' },
       { label: '감사 일정', href: '/calendar' },
+      { label: '활동 통계', href: '/stats' },
     ],
   },
   {
