@@ -18,7 +18,7 @@ export default function RootLayout({
       <body className="flex flex-row min-h-screen">
         <CommitteeProvider>
           <Sidebar />
-          <main className="flex-1 min-h-screen bg-gray-50 overflow-auto">
+          <main className="flex-1 min-w-0 min-h-screen bg-gray-50 overflow-auto pt-14 md:pt-0">
             {children}
           </main>
         </CommitteeProvider>

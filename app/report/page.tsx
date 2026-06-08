@@ -375,6 +375,7 @@ function SectionBody({
         issues.length === 0 ? (
           <p className="text-sm text-gray-400">등록된 지적사항이 없습니다.</p>
         ) : (
+          <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full text-sm border border-gray-400 border-collapse">
             <thead>
               <tr className="bg-gray-100 text-left">
@@ -399,6 +400,7 @@ function SectionBody({
               ))}
             </tbody>
           </table>
+          </div>
         )
       )}
 
@@ -406,6 +408,7 @@ function SectionBody({
         witnesses.length === 0 ? (
           <p className="text-sm text-gray-400">등록된 증인·참고인이 없습니다.</p>
         ) : (
+          <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full text-sm border border-gray-400 border-collapse">
             <thead>
               <tr className="bg-gray-100 text-left">
@@ -428,6 +431,7 @@ function SectionBody({
               ))}
             </tbody>
           </table>
+          </div>
         )
       )}
 
