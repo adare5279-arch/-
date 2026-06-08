@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
+import MeetingStatementsModal from '@/components/MeetingStatementsModal';
 import type { Meeting } from '@/lib/types';
 
 type YearFilter = '전체' | 2023 | 2024 | 2025;
@@ -13,6 +14,8 @@ export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [yearFilter, setYearFilter] = useState<YearFilter>('전체');
+  const [active, setActive] = useState<Meeting | null>(null);
+  const [stmtCounts, setStmtCounts] = useState<Map<number, number>>(new Map());
 
   useEffect(() => {
     async function fetchMeetings() {
@@ -28,7 +31,23 @@ export default function MeetingsPage() {
         console.error('Error fetching meetings:', error);
         setMeetings([]);
       } else {
-        setMeetings((data as Meeting[]) ?? []);
+        const list = (data as Meeting[]) ?? [];
+        setMeetings(list);
+        // 회의별 저장된 발언 요약 개수 집계
+        const ids = list.map((m) => m.id);
+        if (ids.length > 0) {
+          const { data: stmts } = await supabase
+            .from('meeting_statements')
+            .select('meeting_id')
+            .in('meeting_id', ids);
+          const counts = new Map<number, number>();
+          for (const r of (stmts as { meeting_id: number }[]) ?? []) {
+            counts.set(r.meeting_id, (counts.get(r.meeting_id) ?? 0) + 1);
+          }
+          setStmtCounts(counts);
+        } else {
+          setStmtCounts(new Map());
+        }
       }
       setLoading(false);
     }
@@ -103,6 +122,7 @@ export default function MeetingsPage() {
                     <th className="py-2 px-3 font-semibold text-gray-700 whitespace-nowrap">위원회</th>
                     <th className="py-2 px-3 font-semibold text-gray-700 whitespace-nowrap">회의일자</th>
                     <th className="py-2 px-3 font-semibold text-gray-700 whitespace-nowrap">회의록</th>
+                    <th className="py-2 px-3 font-semibold text-gray-700 whitespace-nowrap">의원별 발언 요약</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,6 +144,19 @@ export default function MeetingsPage() {
                           원문 보기
                         </a>
                       </td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <button
+                          onClick={() => setActive(meeting)}
+                          className="inline-flex items-center gap-1.5 rounded border border-[#1F4E79] px-2.5 py-1 text-xs font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors"
+                        >
+                          발언 요약
+                          {(stmtCounts.get(meeting.id) ?? 0) > 0 && (
+                            <span className="inline-block rounded-full bg-[#2E7D32] px-1.5 text-[10px] font-bold text-white">
+                              {stmtCounts.get(meeting.id)}
+                            </span>
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -132,6 +165,10 @@ export default function MeetingsPage() {
           </>
         )}
       </div>
+
+      {active && (
+        <MeetingStatementsModal meeting={active} onClose={() => setActive(null)} />
+      )}
     </div>
   );
 }

@@ -99,6 +99,19 @@ export type ScheduleEvent = {
 
 export const SCHEDULE_KINDS = ["감사", "회의", "현장방문", "일정"] as const;
 
+export type MeetingStatement = {
+  id: number;
+  meeting_id: number;
+  committee: string | null;
+  speaker: string;
+  role: string | null;
+  summary: string | null;
+  turns: number;
+  chars: number;
+  method: string; // 'ai' | 'rule'
+  created_at: string;
+};
+
 export type ActivityLog = {
   id: number;
   table_name: string;
