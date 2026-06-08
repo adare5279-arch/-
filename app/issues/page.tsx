@@ -7,7 +7,7 @@ import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { ISSUE_TYPES, ISSUE_PROCS } from '@/lib/types';
-import type { Issue, Department } from '@/lib/types';
+import type { Issue, Department, MaterialRequest } from '@/lib/types';
 
 const IMPORT_FIELDS: ImportField[] = [
   { key: 'date', aliases: ['일자', 'date'], type: 'date' },
@@ -47,6 +47,7 @@ type FormState = {
   content: string;
   action: string;
   proc: string;
+  request_id: string;
   file_url: string;
   file_name: string;
 };
@@ -58,6 +59,7 @@ const EMPTY_FORM: FormState = {
   content: '',
   action: '',
   proc: '미처리',
+  request_id: '',
   file_url: '',
   file_name: '',
 };
@@ -66,6 +68,7 @@ export default function IssuesPage() {
   const { committee } = useCommittee();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -100,13 +103,17 @@ export default function IssuesPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const deptRes = await supabase
-        .from('departments')
-        .select('*')
-        .eq('committee', committee)
-        .order('name');
+      const [deptRes, reqRes] = await Promise.all([
+        supabase.from('departments').select('*').eq('committee', committee).order('name'),
+        supabase
+          .from('material_requests')
+          .select('*')
+          .eq('committee', committee)
+          .order('created_at', { ascending: false }),
+      ]);
       if (cancelled) return;
       setDepartments((deptRes.data as Department[]) ?? []);
+      setRequests((reqRes.data as MaterialRequest[]) ?? []);
       await fetchIssues();
       if (!cancelled) setLoading(false);
     }
@@ -163,6 +170,7 @@ export default function IssuesPage() {
       content: form.content.trim(),
       action: form.action || null,
       proc: form.proc,
+      request_id: form.request_id ? Number(form.request_id) : null,
       file_url: form.file_url || null,
       file_name: form.file_name || null,
     });
@@ -213,6 +221,8 @@ export default function IssuesPage() {
     return true;
   });
 
+  const requestMap = new Map(requests.map((r) => [r.id, r]));
+
   const filterActive =
     q.trim() !== '' ||
     deptFilter !== '전체' ||
@@ -238,6 +248,7 @@ export default function IssuesPage() {
       { header: '지적내용', value: (r) => r.content },
       { header: '조치요구', value: (r) => r.action ?? '' },
       { header: '처리상태', value: (r) => r.proc },
+      { header: '관련 자료요구', value: (r) => (r.request_id ? requestMap.get(r.request_id)?.title ?? '' : '') },
       { header: '첨부파일', value: (r) => r.file_name ?? '' },
       { header: '첨부링크', value: (r) => r.file_url ?? '' },
     ]);
@@ -349,6 +360,20 @@ export default function IssuesPage() {
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
+          </label>
+          <label className="text-sm text-gray-700 flex flex-col gap-1 sm:col-span-2">
+            관련 자료요구 (선택)
+            <select value={form.request_id} onChange={setField('request_id')} className={inputCls}>
+              <option value="">연계 안 함</option>
+              {requests.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.title}{r.member ? ` (${r.member})` : ''}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-gray-400">
+              이 지적사항이 어떤 자료요구에서 비롯되었는지 연결합니다.
+            </span>
           </label>
           <div className="sm:col-span-2 rounded-lg border border-dashed border-[#1F4E79]/40 bg-[#1F4E79]/5 p-3 flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -485,6 +510,7 @@ export default function IssuesPage() {
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">유형</th>
                   <th className="py-2 px-3 font-semibold">지적내용</th>
                   <th className="py-2 px-3 font-semibold">조치요구</th>
+                  <th className="py-2 px-3 font-semibold whitespace-nowrap">관련 자료요구</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">처리</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
@@ -505,6 +531,18 @@ export default function IssuesPage() {
                     </td>
                     <td className="py-2 px-3 text-gray-800 max-w-xs">{r.content}</td>
                     <td className="py-2 px-3 text-gray-600 max-w-xs">{r.action ?? '—'}</td>
+                    <td className="py-2 px-3 text-gray-600 max-w-[12rem]">
+                      {r.request_id && requestMap.has(r.request_id) ? (
+                        <span
+                          className="inline-block text-xs rounded bg-[#1F4E79]/10 text-[#1F4E79] px-2 py-0.5 truncate max-w-full"
+                          title={requestMap.get(r.request_id)!.title}
+                        >
+                          🔗 {requestMap.get(r.request_id)!.title}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 whitespace-nowrap">
                       {r.file_url ? (
                         <a

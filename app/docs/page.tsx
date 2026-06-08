@@ -69,6 +69,7 @@ export default function DocsPage() {
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [issueCounts, setIssueCounts] = useState<Map<number, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('전체');
   const [showForm, setShowForm] = useState(false);
@@ -103,13 +104,19 @@ export default function DocsPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [memRes, deptRes] = await Promise.all([
+      const [memRes, deptRes, issRes] = await Promise.all([
         supabase.from('members').select('*').eq('committee', committee).order('id'),
         supabase.from('departments').select('*').eq('committee', committee).order('name'),
+        supabase.from('issues').select('request_id').eq('committee', committee),
       ]);
       if (cancelled) return;
       setMembers((memRes.data as Member[]) ?? []);
       setDepartments((deptRes.data as Department[]) ?? []);
+      const counts = new Map<number, number>();
+      for (const row of (issRes.data as { request_id: number | null }[]) ?? []) {
+        if (row.request_id != null) counts.set(row.request_id, (counts.get(row.request_id) ?? 0) + 1);
+      }
+      setIssueCounts(counts);
       await fetchRequests();
       if (!cancelled) setLoading(false);
     }
@@ -494,6 +501,7 @@ export default function DocsPage() {
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">담당부서</th>
                   <th className="py-2 px-3 font-semibold">요구자료명</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">마감일</th>
+                  <th className="py-2 px-3 font-semibold whitespace-nowrap">연계 지적</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">상태</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
@@ -506,6 +514,18 @@ export default function DocsPage() {
                     <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
                     <td className="py-2 px-3 text-gray-800">{r.title}</td>
                     <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.due_date ?? '—'}</td>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      {issueCounts.get(r.id) ? (
+                        <Link
+                          href="/issues"
+                          className="inline-block text-xs rounded bg-[#C62828]/10 text-[#C62828] px-2 py-0.5 hover:underline"
+                        >
+                          지적 {issueCounts.get(r.id)}건
+                        </Link>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 whitespace-nowrap">
                       {r.file_url ? (
                         <a

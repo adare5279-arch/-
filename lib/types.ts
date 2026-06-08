@@ -65,6 +65,7 @@ export type Issue = {
   content: string;
   action: string | null;
   proc: string;
+  request_id: number | null;
   file_url: string | null;
   file_name: string | null;
   created_at: string;
