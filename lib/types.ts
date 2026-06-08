@@ -121,6 +121,7 @@ export type MeetingStatement = {
 export type MeetingMinutes = {
   id: number;
   committee: string | null;
+  source: string; // 'audio' | 'doc'
   title: string | null;
   meeting_date: string | null;
   audio_url: string | null;

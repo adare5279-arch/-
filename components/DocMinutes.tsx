@@ -2,25 +2,23 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
 import type { MeetingMinutes } from '@/lib/types';
 
-const MAX_BYTES = 25 * 1024 * 1024;
-const ACCEPT = '.mp3,.m4a,.wav,.webm,.mp4,.ogg,.aac,.mpga,audio/*';
-
 type Props = { committee: string | null };
 
-export default function AudioMinutes({ committee }: Props) {
+export default function DocMinutes({ committee }: Props) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [meetingDate, setMeetingDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
-  const [transcript, setTranscript] = useState('');
+  const [source, setSource] = useState(''); // 추출된 원문 텍스트
   const [summary, setSummary] = useState('');
-  const [audioUrl, setAudioUrl] = useState('');
-  const [audioName, setAudioName] = useState('');
+  const [fileUrl, setFileUrl] = useState('');
+  const [fileName, setFileName] = useState('');
   const [saving, setSaving] = useState(false);
   const [list, setList] = useState<MeetingMinutes[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -31,7 +29,7 @@ export default function AudioMinutes({ committee }: Props) {
       .from('meeting_minutes')
       .select('*')
       .eq('committee', committee)
-      .eq('source', 'audio')
+      .eq('source', 'doc')
       .order('created_at', { ascending: false });
     setList((data as MeetingMinutes[]) ?? []);
     setLoadingList(false);
@@ -45,86 +43,65 @@ export default function AudioMinutes({ committee }: Props) {
     setFile(null);
     setTitle('');
     setMeetingDate('');
-    setTranscript('');
+    setSource('');
     setSummary('');
-    setAudioUrl('');
-    setAudioName('');
+    setFileUrl('');
+    setFileName('');
     setPhase('');
   }
 
   async function handleRun() {
     if (!file) {
-      setPhase('녹음 파일을 선택하세요.');
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      setPhase(
-        `파일이 ${(file.size / 1024 / 1024).toFixed(1)}MB로 한도(25MB)를 초과합니다. 더 짧게 나누거나 낮은 비트레이트(예: 64kbps 모노 MP3)로 변환해 주세요.`,
-      );
+      setPhase('문서 파일을 선택하세요.');
       return;
     }
     setBusy(true);
     try {
-      // 1) Supabase Storage 업로드 (Vercel 본문 한계 우회)
-      setPhase('① 음성 파일 업로드 중...');
-      const ext = file.name.split('.').pop() || 'bin';
-      const path = `audio/${crypto.randomUUID()}.${ext}`;
+      // 1) 문서 본문 추출 (브라우저에서)
+      setPhase('① 문서 본문 추출 중...');
+      const { text, supported, ext } = await extractText(file);
+      if (!supported || !text.trim()) {
+        setPhase(
+          `이 형식(.${ext || '?'})은 본문 자동 추출이 어렵습니다. txt·docx·pdf·xlsx·hwp 등으로 변환해 다시 시도하세요.`,
+        );
+        setBusy(false);
+        return;
+      }
+      setSource(text.trim());
+
+      // 2) 원본 파일 보관 (참고 링크)
+      const path = `docs/${crypto.randomUUID()}.${ext || 'bin'}`;
       const { error: upErr } = await supabase.storage
-        .from('meeting-audio')
-        .upload(path, file, { upsert: true, contentType: file.type || undefined });
-      if (upErr) {
-        setPhase(`업로드 실패: ${upErr.message}`);
-        setBusy(false);
-        return;
+        .from('report-files')
+        .upload(path, file, { upsert: true });
+      if (!upErr) {
+        setFileUrl(supabase.storage.from('report-files').getPublicUrl(path).data.publicUrl);
       }
-      const url = supabase.storage.from('meeting-audio').getPublicUrl(path).data.publicUrl;
-      setAudioUrl(url);
-      setAudioName(file.name);
+      setFileName(file.name);
 
-      // 2) 음성 전사 (OpenAI Whisper)
-      setPhase('② 음성을 텍스트로 전사 중... (길이에 따라 수십 초~수 분)');
-      const trRes = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fileUrl: url, fileName: file.name, language: 'ko' }),
-      });
-      const trData = (await trRes.json()) as { text?: string; error?: string };
-      if (!trRes.ok || trData.error) {
-        setPhase(`전사 실패: ${trData.error ?? trRes.status}`);
-        setBusy(false);
-        return;
-      }
-      const tr = (trData.text ?? '').trim();
-      setTranscript(tr);
-      if (!tr) {
-        setPhase('전사 결과가 비어 있습니다. 음성이 또렷한지 확인해 주세요.');
-        setBusy(false);
-        return;
-      }
-
-      // 3) AI 회의록 요약 (generate-query 재사용)
-      setPhase('③ AI가 회의록으로 정리 중...');
+      // 3) AI 회의록 정리 (generate-query 재사용)
+      setPhase('② AI가 회의록으로 정리 중...');
       const system =
-        '당신은 지방의회 회의록 정리 담당입니다. 행정사무감사 회의 음성 전사본을 바탕으로 ' +
+        '당신은 지방의회 회의록 정리 담당입니다. 행정사무감사 관련 문서(녹취록·속기 초안·메모·발언자료 등)를 ' +
         '공식 회의록 형식으로 정리합니다. 다음 구조의 마크다운으로 작성하세요: ' +
         '## 회의 개요(일시·안건 추정), ## 안건별 논의 요지(• 항목별), ## 주요 질의·답변(• Q/A 요지), ## 결정·조치사항. ' +
-        '전사 오류로 보이는 표현은 문맥상 자연스럽게 보정하되 없는 사실을 지어내지 마세요. 공문 어투(~함, ~필요)로 간결하게.';
-      const prompt = `다음은 회의 음성 전사본입니다. 회의록으로 정리하세요.\n\n[전사본]\n${tr}`;
-      const sumRes = await fetch('/api/generate-query', {
+        '원문에 없는 사실을 지어내지 말고, 표·반복 머리글 등 잡음은 정리하세요. 공문 어투(~함, ~필요)로 간결하게.';
+      const prompt = `다음은 회의 관련 문서 원문입니다. 회의록으로 정리하세요.\n\n[문서 원문]\n${text.trim()}`;
+      const res = await fetch('/api/generate-query', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ engine: 'claude', system, prompt }),
       });
-      const sumData = (await sumRes.json()) as { text?: string; error?: string };
-      if (!sumRes.ok || sumData.error) {
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok || data.error) {
         setSummary('');
-        setPhase(`전사는 완료됐으나 AI 요약에 실패했습니다: ${sumData.error ?? sumRes.status}`);
+        setPhase(`본문은 추출됐으나 AI 정리에 실패했습니다: ${data.error ?? res.status}`);
       } else {
-        setSummary((sumData.text ?? '').trim());
+        setSummary((data.text ?? '').trim());
         setPhase('완료! 내용을 검토·수정한 뒤 저장하거나 다운로드하세요.');
       }
     } catch (e) {
-      console.error('audio minutes error:', e);
+      console.error('doc minutes error:', e);
       setPhase('처리 중 오류가 발생했습니다.');
     } finally {
       setBusy(false);
@@ -132,21 +109,21 @@ export default function AudioMinutes({ committee }: Props) {
   }
 
   async function handleSave() {
-    if (!transcript && !summary) return;
+    if (!source && !summary) return;
     setSaving(true);
     const { error } = await supabase.from('meeting_minutes').insert({
       committee,
-      source: 'audio',
-      title: title || audioName || '제목 없는 회의',
+      source: 'doc',
+      title: title || fileName || '제목 없는 회의',
       meeting_date: meetingDate || null,
-      audio_url: audioUrl || null,
-      audio_name: audioName || null,
-      transcript: transcript || null,
+      audio_url: fileUrl || null,
+      audio_name: fileName || null,
+      transcript: source || null,
       summary: summary || null,
     });
     setSaving(false);
     if (error) {
-      console.error('save minutes error:', error);
+      console.error('save doc minutes error:', error);
       alert('저장에 실패했습니다.');
       return;
     }
@@ -161,9 +138,9 @@ export default function AudioMinutes({ committee }: Props) {
       <p class="center muted">${escapeHtml(committee ?? '')}${m.date ? ` · ${escapeHtml(m.date)}` : ''}</p>
       <h2>AI 정리 회의록</h2>
       <p>${escapeHtml(m.summary || '(요약 없음)')}</p>
-      <h2>전사 전문(全文)</h2>
-      <p>${escapeHtml(m.transcript || '(전사 없음)')}</p>
-      <p class="muted">※ 음성 자동 전사·AI 요약 결과로 오류가 있을 수 있어 검수가 필요합니다.</p>`;
+      <h2>문서 원문</h2>
+      <p>${escapeHtml(m.transcript || '(원문 없음)')}</p>
+      <p class="muted">※ 문서 기반 AI 정리 결과로 오류가 있을 수 있어 검수가 필요합니다.</p>`;
     downloadAsDoc(`회의록_${m.title || '제목없음'}`, body, m.title || '회의록');
   }
 
@@ -173,7 +150,7 @@ export default function AudioMinutes({ committee }: Props) {
     setList((l) => l.filter((x) => x.id !== id));
     const { error } = await supabase.from('meeting_minutes').delete().eq('id', id);
     if (error) {
-      console.error('delete minutes error:', error);
+      console.error('delete doc minutes error:', error);
       setList(prev);
     }
   }
@@ -185,16 +162,16 @@ export default function AudioMinutes({ committee }: Props) {
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-base font-semibold text-[#1F4E79]">녹음 자동 회의록 (AI)</h2>
+          <h2 className="text-base font-semibold text-[#1F4E79]">문서 자동 회의록 (AI)</h2>
           <p className="text-xs text-gray-500 mt-1">
-            녹음 파일 업로드 → 한국어 자동 전사 → AI 회의록 정리. 요청당 25MB(약 50분) 이내.
+            녹취록·속기 초안·메모 등 문서 업로드 → 본문 추출 → AI 회의록 정리. (txt·docx·pdf·xlsx·hwp)
           </p>
         </div>
         <button
           onClick={() => setOpen((s) => !s)}
           className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
         >
-          {open ? '닫기' : '+ 녹음 올리기'}
+          {open ? '닫기' : '+ 문서 올리기'}
         </button>
       </div>
 
@@ -221,10 +198,10 @@ export default function AudioMinutes({ committee }: Props) {
             </label>
           </div>
           <label className="text-sm text-gray-700 flex flex-col gap-1">
-            녹음 파일 (mp3·m4a·wav 등, 25MB 이내)
+            문서 파일 (txt·docx·pdf·xlsx·hwp 등)
             <input
               type="file"
-              accept={ACCEPT}
+              accept={UPLOAD_ACCEPT}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               disabled={busy}
               className="text-xs file:mr-2 file:rounded file:border-0 file:bg-[#1F4E79] file:px-3 file:py-1.5 file:text-white file:cursor-pointer disabled:opacity-50"
@@ -241,14 +218,14 @@ export default function AudioMinutes({ committee }: Props) {
               disabled={busy || !file}
               className="rounded-lg bg-[#2E7D32] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-50"
             >
-              {busy ? '처리 중...' : '전사 + 회의록 생성'}
+              {busy ? '처리 중...' : '본문 추출 + 회의록 생성'}
             </button>
             {phase && (
               <span className={`text-xs ${busy ? 'text-[#B45309]' : 'text-gray-600'}`}>{phase}</span>
             )}
           </div>
 
-          {(transcript || summary) && (
+          {(source || summary) && (
             <div className="space-y-3 pt-2">
               <label className="text-sm text-gray-700 flex flex-col gap-1">
                 AI 정리 회의록 (수정 가능)
@@ -260,10 +237,10 @@ export default function AudioMinutes({ committee }: Props) {
                 />
               </label>
               <label className="text-sm text-gray-700 flex flex-col gap-1">
-                전사 전문 (수정 가능)
+                문서 원문 (수정 가능)
                 <textarea
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
                   rows={6}
                   className={inputCls}
                 />
@@ -271,7 +248,7 @@ export default function AudioMinutes({ committee }: Props) {
               <div className="flex gap-2 flex-wrap justify-end">
                 <button
                   onClick={() =>
-                    downloadDoc({ title: title || audioName, date: meetingDate, summary, transcript })
+                    downloadDoc({ title: title || fileName, date: meetingDate, summary, transcript: source })
                   }
                   className="rounded-lg border border-[#1F4E79] px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors"
                 >
@@ -290,13 +267,13 @@ export default function AudioMinutes({ committee }: Props) {
         </div>
       )}
 
-      {/* 저장된 자동 회의록 목록 */}
+      {/* 저장된 문서 회의록 목록 */}
       <div>
-        <p className="text-xs font-semibold text-gray-500 mb-2">저장된 자동 회의록</p>
+        <p className="text-xs font-semibold text-gray-500 mb-2">저장된 문서 회의록</p>
         {loadingList ? (
           <p className="text-sm text-gray-500 py-3 text-center">불러오는 중...</p>
         ) : list.length === 0 ? (
-          <p className="text-sm text-gray-400 py-3 text-center">아직 저장된 자동 회의록이 없습니다.</p>
+          <p className="text-sm text-gray-400 py-3 text-center">아직 저장된 문서 회의록이 없습니다.</p>
         ) : (
           <ul className="divide-y divide-gray-100">
             {list.map((m) => (
