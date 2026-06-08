@@ -4,7 +4,15 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import type { MaterialRequest, Issue, Witness } from '@/lib/types';
+import { exportWorkbook, makeSheet } from '@/lib/exportXlsx';
+import type {
+  MaterialRequest,
+  Issue,
+  Witness,
+  Meeting,
+  Member,
+  Department,
+} from '@/lib/types';
 
 export default function DashboardPage() {
   const { committee } = useCommittee();
@@ -15,6 +23,7 @@ export default function DashboardPage() {
   const [meetingCount, setMeetingCount] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!committee) return;
@@ -62,6 +71,79 @@ export default function DashboardPage() {
     fetchData();
     return () => { cancelled = true; };
   }, [committee]);
+
+  async function handleExportAll() {
+    if (!committee || exporting) return;
+    setExporting(true);
+    try {
+      const [reqRes, meetRes, memRes, deptRes, issueRes, witRes] = await Promise.all([
+        supabase.from('material_requests').select('*').eq('committee', committee).order('created_at', { ascending: false }),
+        supabase.from('meetings').select('*').eq('committee', committee).order('date', { ascending: false }),
+        supabase.from('members').select('*').eq('committee', committee).order('id'),
+        supabase.from('departments').select('*').eq('committee', committee).order('name'),
+        supabase.from('issues').select('*').eq('committee', committee).order('date', { ascending: false }),
+        supabase.from('witnesses').select('*').eq('committee', committee).order('dt', { ascending: false }),
+      ]);
+
+      const reqRows = (reqRes.data as MaterialRequest[]) ?? [];
+      const meetRows = (meetRes.data as Meeting[]) ?? [];
+      const memRows = (memRes.data as Member[]) ?? [];
+      const deptRows = (deptRes.data as Department[]) ?? [];
+      const issueRows = (issueRes.data as Issue[]) ?? [];
+      const witRows = (witRes.data as Witness[]) ?? [];
+
+      exportWorkbook(`행정사무감사_${committee}`, [
+        makeSheet('자료요구', reqRows, [
+          { header: '의원', value: r => r.member ?? '' },
+          { header: '담당부서', value: r => r.dept ?? '' },
+          { header: '요구자료명', value: r => r.title },
+          { header: '요구일', value: r => r.req_date ?? '' },
+          { header: '마감일', value: r => r.due_date ?? '' },
+          { header: '상태', value: r => r.status },
+          { header: '비고', value: r => r.note ?? '' },
+        ]),
+        makeSheet('지적사항', issueRows, [
+          { header: '일자', value: r => r.date ?? '' },
+          { header: '부서', value: r => r.dept ?? '' },
+          { header: '유형', value: r => r.type },
+          { header: '지적내용', value: r => r.content },
+          { header: '조치요구', value: r => r.action ?? '' },
+          { header: '처리상태', value: r => r.proc },
+          { header: '첨부파일', value: r => r.file_name ?? '' },
+        ]),
+        makeSheet('증인참고인', witRows, [
+          { header: '구분', value: r => r.kind },
+          { header: '성명', value: r => r.name },
+          { header: '소속', value: r => r.org ?? '' },
+          { header: '직위', value: r => r.pos ?? '' },
+          { header: '일시', value: r => r.dt ?? '' },
+          { header: '출석', value: r => r.attend },
+          { header: '연락처', value: r => r.phone ?? '' },
+          { header: '비고', value: r => r.note ?? '' },
+        ]),
+        makeSheet('회의록', meetRows, [
+          { header: '연도', value: m => m.year },
+          { header: '위원회', value: m => m.committee },
+          { header: '회의일자', value: m => m.date },
+        ]),
+        makeSheet('의원명부', memRows, [
+          { header: '이름', value: m => m.name },
+          { header: '직위', value: m => m.role },
+          { header: '정당', value: m => m.party ?? '무소속' },
+          { header: '선거구', value: m => m.district ?? '' },
+        ]),
+        makeSheet('소관부서', deptRows, [
+          { header: '부서명', value: d => d.name },
+          { header: '홈페이지', value: d => d.url ?? '' },
+        ]),
+      ]);
+    } catch (e) {
+      console.error('Error exporting all data:', e);
+      alert('엑셀 내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -129,11 +211,20 @@ export default function DashboardPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold text-[#1F4E79]">대시보드</h1>
-        {committee && (
-          <span className="text-base font-medium text-gray-600">— {committee}</span>
-        )}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-[#1F4E79]">대시보드</h1>
+          {committee && (
+            <span className="text-base font-medium text-gray-600">— {committee}</span>
+          )}
+        </div>
+        <button
+          onClick={handleExportAll}
+          disabled={loading || exporting}
+          className="rounded-lg border border-[#2E7D32] bg-white px-4 py-2 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+        >
+          {exporting ? '내보내는 중...' : '전체 엑셀 다운로드'}
+        </button>
       </div>
 
       {loading ? (
