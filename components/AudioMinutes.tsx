@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
+import {
+  getOpenAiKey,
+  setOpenAiKey,
+  getAnthropicKey,
+  setAnthropicKey,
+  maskKey,
+} from '@/lib/userKeys';
 import type { MeetingMinutes } from '@/lib/types';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -24,6 +31,33 @@ export default function AudioMinutes({ committee }: Props) {
   const [saving, setSaving] = useState(false);
   const [list, setList] = useState<MeetingMinutes[]>([]);
   const [loadingList, setLoadingList] = useState(true);
+
+  // 개별(개인) API 키 — 이 브라우저 localStorage에만 저장
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [openaiKey, setOpenaiKeyState] = useState('');
+  const [anthropicKey, setAnthropicKeyState] = useState('');
+  const [keySaved, setKeySaved] = useState(false);
+
+  useEffect(() => {
+    setOpenaiKeyState(getOpenAiKey());
+    setAnthropicKeyState(getAnthropicKey());
+  }, []);
+
+  function saveKeys() {
+    setOpenAiKey(openaiKey);
+    setAnthropicKey(anthropicKey);
+    setOpenaiKeyState(getOpenAiKey());
+    setAnthropicKeyState(getAnthropicKey());
+    setKeySaved(true);
+    setTimeout(() => setKeySaved(false), 2000);
+  }
+
+  function clearKeys() {
+    setOpenAiKey('');
+    setAnthropicKey('');
+    setOpenaiKeyState('');
+    setAnthropicKeyState('');
+  }
 
   const fetchList = useCallback(async () => {
     setLoadingList(true);
@@ -86,7 +120,12 @@ export default function AudioMinutes({ committee }: Props) {
       const trRes = await fetch('/api/transcribe', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fileUrl: url, fileName: file.name, language: 'ko' }),
+        body: JSON.stringify({
+          fileUrl: url,
+          fileName: file.name,
+          language: 'ko',
+          apiKey: getOpenAiKey(),
+        }),
       });
       const trData = (await trRes.json()) as { text?: string; error?: string };
       if (!trRes.ok || trData.error) {
@@ -113,7 +152,7 @@ export default function AudioMinutes({ committee }: Props) {
       const sumRes = await fetch('/api/generate-query', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ engine: 'claude', system, prompt }),
+        body: JSON.stringify({ engine: 'claude', system, prompt, apiKey: getAnthropicKey() }),
       });
       const sumData = (await sumRes.json()) as { text?: string; error?: string };
       if (!sumRes.ok || sumData.error) {
@@ -190,13 +229,78 @@ export default function AudioMinutes({ committee }: Props) {
             녹음 파일 업로드 → 한국어 자동 전사 → AI 회의록 정리. 요청당 25MB(약 50분) 이내.
           </p>
         </div>
-        <button
-          onClick={() => setOpen((s) => !s)}
-          className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
-        >
-          {open ? '닫기' : '+ 녹음 올리기'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setKeyOpen((s) => !s)}
+            className="rounded-lg border border-[#6A1B9A] px-3 py-2 text-sm font-medium text-[#6A1B9A] hover:bg-[#6A1B9A] hover:text-white transition-colors"
+          >
+            개별 API 키 설정
+          </button>
+          <button
+            onClick={() => setOpen((s) => !s)}
+            className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
+          >
+            {open ? '닫기' : '+ 녹음 올리기'}
+          </button>
+        </div>
       </div>
+
+      {/* 개별(개인) API 키 설정 — 이 브라우저에만 저장 */}
+      {keyOpen && (
+        <div className="rounded-lg border border-dashed border-[#6A1B9A]/40 bg-[#6A1B9A]/5 p-4 space-y-3">
+          <p className="text-xs text-gray-600 leading-relaxed">
+            본인 컴퓨터에서 개인 API 키로 이 기능을 사용할 수 있습니다. 입력한 키는{' '}
+            <strong>이 브라우저에만 저장</strong>되며 서버·DB에 저장되지 않고, 요청 시에만 전달되어
+            즉시 사용·폐기됩니다. 키를 비워 두면 서버 공용 키(설정된 경우)를 사용합니다.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-gray-700 flex flex-col gap-1">
+              OpenAI API 키 <span className="text-xs text-gray-400">(음성 전사 — Whisper)</span>
+              <input
+                type="password"
+                value={openaiKey}
+                onChange={(e) => setOpenaiKeyState(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                className={inputCls}
+              />
+              <span className="text-xs text-gray-400">
+                현재: {getOpenAiKey() ? `개인 키 사용 (${maskKey(getOpenAiKey())})` : '서버 공용 키'}
+              </span>
+            </label>
+            <label className="text-sm text-gray-700 flex flex-col gap-1">
+              Anthropic API 키 <span className="text-xs text-gray-400">(AI 회의록 정리 — Claude)</span>
+              <input
+                type="password"
+                value={anthropicKey}
+                onChange={(e) => setAnthropicKeyState(e.target.value)}
+                placeholder="sk-ant-..."
+                autoComplete="off"
+                className={inputCls}
+              />
+              <span className="text-xs text-gray-400">
+                현재:{' '}
+                {getAnthropicKey() ? `개인 키 사용 (${maskKey(getAnthropicKey())})` : '서버 공용 키'}
+              </span>
+            </label>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={saveKeys}
+              className="rounded-lg bg-[#6A1B9A] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition"
+            >
+              키 저장
+            </button>
+            <button
+              onClick={clearKeys}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 transition"
+            >
+              키 삭제
+            </button>
+            {keySaved && <span className="text-xs text-[#2E7D32]">저장되었습니다.</span>}
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="rounded-lg border border-dashed border-[#1F4E79]/40 bg-[#1F4E79]/5 p-4 space-y-3">

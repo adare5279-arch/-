@@ -5,20 +5,26 @@ const MAX_BYTES = 25 * 1024 * 1024; // OpenAI 음성 전사 요청당 한도 25M
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) {
-      return Response.json(
-        { error: 'OPENAI_API_KEY가 설정되지 않았습니다. .env.local 또는 배포 환경변수에 키를 넣어주세요.' },
-        { status: 400 },
-      );
-    }
-
     const body = (await request.json()) as {
       fileUrl?: string;
       fileName?: string;
       language?: string;
+      apiKey?: string;
     };
     const { fileUrl, fileName, language } = body;
+
+    // 사용자가 입력한 개인 키를 우선 사용(브라우저에만 저장됨). 없으면 서버 공용 키.
+    const key = body.apiKey?.trim() || process.env.OPENAI_API_KEY;
+    if (!key) {
+      return Response.json(
+        {
+          error:
+            'OpenAI API 키가 없습니다. 화면의 "개별 API 키 설정"에 본인 키를 입력하거나, 관리자가 서버 환경변수(OPENAI_API_KEY)를 설정해야 합니다.',
+        },
+        { status: 400 },
+      );
+    }
+
     if (!fileUrl) {
       return Response.json({ error: '음성 파일 URL이 없습니다.' }, { status: 400 });
     }

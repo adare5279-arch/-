@@ -5,14 +5,17 @@ export async function POST(request: Request): Promise<Response> {
       prompt: string;
       model?: string;
       system?: string;
+      apiKey?: string;
     };
     const { engine, prompt, model, system } = body;
+    const userKey = body.apiKey?.trim();
 
     if (engine === 'claude') {
-      const key = process.env.ANTHROPIC_API_KEY;
+      // 사용자가 입력한 개인 키를 우선 사용(브라우저에만 저장됨). 없으면 서버 공용 키.
+      const key = userKey || process.env.ANTHROPIC_API_KEY;
       if (!key) {
         return Response.json(
-          { error: 'ANTHROPIC_API_KEY가 설정되지 않았습니다. .env.local에 키를 넣어주세요.' },
+          { error: 'Anthropic(Claude) API 키가 없습니다. 개별 API 키를 입력하거나 서버 환경변수(ANTHROPIC_API_KEY)를 설정하세요.' },
           { status: 400 }
         );
       }
@@ -48,10 +51,11 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     if (engine === 'openai') {
-      const key = process.env.OPENAI_API_KEY;
+      // 사용자가 입력한 개인 키를 우선 사용(브라우저에만 저장됨). 없으면 서버 공용 키.
+      const key = userKey || process.env.OPENAI_API_KEY;
       if (!key) {
         return Response.json(
-          { error: 'OPENAI_API_KEY가 설정되지 않았습니다. .env.local에 키를 넣어주세요.' },
+          { error: 'OpenAI API 키가 없습니다. 개별 API 키를 입력하거나 서버 환경변수(OPENAI_API_KEY)를 설정하세요.' },
           { status: 400 }
         );
       }
