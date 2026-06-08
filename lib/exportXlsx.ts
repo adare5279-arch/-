@@ -54,3 +54,14 @@ export function exportSheet<T>(
 ) {
   exportWorkbook(filename, [makeSheet(sheetName, rows, columns)]);
 }
+
+/**
+ * Export a header-only sheet to use as a fill-in template for importing.
+ */
+export function exportTemplate<T>(
+  filename: string,
+  sheetName: string,
+  columns: ExportColumn<T>[]
+) {
+  exportWorkbook(filename, [makeSheet<T>(sheetName, [], columns)]);
+}

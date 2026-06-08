@@ -1,10 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import { exportSheet } from '@/lib/exportXlsx';
+import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
+import { importExcel, type ImportField } from '@/lib/importXlsx';
 import type { Member } from '@/lib/types';
+
+const IMPORT_FIELDS: ImportField[] = [
+  { key: 'name', aliases: ['이름', '성명', 'name'], required: true },
+  { key: 'role', aliases: ['직위', 'role'], fallback: '위원' },
+  { key: 'party', aliases: ['정당', 'party'] },
+  { key: 'district', aliases: ['선거구', 'district'] },
+];
+
+const TEMPLATE_COLUMNS = [
+  { header: '이름', value: () => '' },
+  { header: '직위', value: () => '' },
+  { header: '정당', value: () => '' },
+  { header: '선거구', value: () => '' },
+];
 
 const ROLE_RANK: Record<string, number> = {
   위원장: 0,
@@ -101,34 +116,33 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchMembers = useCallback(async () => {
+    const { data } = await supabase
+      .from('members')
+      .select('*')
+      .eq('committee', committee);
+    const sorted = ((data as Member[]) ?? []).sort(
+      (a, b) => roleRank(a.role) - roleRank(b.role)
+    );
+    setMembers(sorted);
+  }, [committee]);
 
   useEffect(() => {
     if (!committee) return;
-
     let cancelled = false;
-
-    async function fetchMembers() {
+    (async () => {
       setLoading(true);
       try {
-        const { data } = await supabase
-          .from('members')
-          .select('*')
-          .eq('committee', committee);
-
-        if (cancelled) return;
-
-        const sorted = ((data as Member[]) ?? []).sort(
-          (a, b) => roleRank(a.role) - roleRank(b.role)
-        );
-        setMembers(sorted);
+        await fetchMembers();
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-
-    fetchMembers();
+    })();
     return () => { cancelled = true; };
-  }, [committee]);
+  }, [committee, fetchMembers]);
 
   const totalCount = members.length;
   const minjuCount = members.filter(m => m.party === '민주').length;
@@ -146,6 +160,29 @@ export default function MembersPage() {
     ]);
   }
 
+  function handleTemplate() {
+    exportTemplate(`의원명부_양식`, '의원명부', TEMPLATE_COLUMNS);
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      await importExcel({
+        file,
+        label: '의원',
+        base: { committee },
+        fields: IMPORT_FIELDS,
+        insert: async (records) => supabase.from('members').insert(records),
+        onDone: fetchMembers,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -157,7 +194,27 @@ export default function MembersPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={handleImportFile}
+          className="hidden"
+        />
+        <button
+          onClick={handleTemplate}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          양식 다운로드
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+          className="rounded-lg border border-[#1F4E79] bg-white px-3 py-1.5 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+        >
+          {importing ? '가져오는 중...' : '엑셀 불러오기'}
+        </button>
         <button
           onClick={handleExport}
           disabled={members.length === 0}

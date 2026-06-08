@@ -1,37 +1,52 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import { exportSheet } from '@/lib/exportXlsx';
+import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
+import { importExcel, type ImportField } from '@/lib/importXlsx';
 import type { Department } from '@/lib/types';
+
+const IMPORT_FIELDS: ImportField[] = [
+  { key: 'name', aliases: ['부서명', '이름', 'name'], required: true },
+  { key: 'url', aliases: ['홈페이지', 'url'] },
+];
+
+const TEMPLATE_COLUMNS = [
+  { header: '부서명', value: () => '' },
+  { header: '홈페이지', value: () => '' },
+];
 
 export default function DeptPage() {
   const { committee } = useCommittee();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDepartments = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('departments')
+      .select('*')
+      .eq('committee', committee)
+      .order('name');
+    if (error) {
+      console.error('Error fetching departments:', error);
+      setDepartments([]);
+    } else {
+      setDepartments((data as Department[]) ?? []);
+    }
+  }, [committee]);
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    (async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('departments')
-        .select('*')
-        .eq('committee', committee)
-        .order('name');
-      if (cancelled) return;
-      if (error) {
-        console.error('Error fetching departments:', error);
-        setDepartments([]);
-      } else {
-        setDepartments((data as Department[]) ?? []);
-      }
-      setLoading(false);
-    }
-    load();
+      await fetchDepartments();
+      if (!cancelled) setLoading(false);
+    })();
     return () => { cancelled = true; };
-  }, [committee]);
+  }, [committee, fetchDepartments]);
 
   function handleExport() {
     exportSheet(`소관부서_${committee}`, '소관부서', departments, [
@@ -40,19 +55,64 @@ export default function DeptPage() {
     ]);
   }
 
+  function handleTemplate() {
+    exportTemplate(`소관부서_양식`, '소관부서', TEMPLATE_COLUMNS);
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      await importExcel({
+        file,
+        label: '소관부서',
+        base: { committee },
+        fields: IMPORT_FIELDS,
+        insert: async (records) => supabase.from('departments').insert(records),
+        onDone: fetchDepartments,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold text-[#1F4E79]">
           소관부서{committee ? ` — ${committee}` : ''}
         </h1>
-        <button
-          onClick={handleExport}
-          disabled={departments.length === 0}
-          className="rounded-lg border border-[#2E7D32] bg-white px-4 py-2 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
-        >
-          엑셀 저장
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <button
+            onClick={handleTemplate}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            양식 다운로드
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="rounded-lg border border-[#1F4E79] bg-white px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+          >
+            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={departments.length === 0}
+            className="rounded-lg border border-[#2E7D32] bg-white px-4 py-2 text-sm font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+          >
+            엑셀 저장
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">

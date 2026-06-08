@@ -1,12 +1,31 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import { exportSheet } from '@/lib/exportXlsx';
+import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
+import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { ISSUE_TYPES, ISSUE_PROCS } from '@/lib/types';
 import type { Issue, Department } from '@/lib/types';
+
+const IMPORT_FIELDS: ImportField[] = [
+  { key: 'date', aliases: ['일자', 'date'], type: 'date' },
+  { key: 'dept', aliases: ['부서', '담당부서', 'dept'] },
+  { key: 'type', aliases: ['유형', 'type'], allowed: ISSUE_TYPES, fallback: '개선' },
+  { key: 'content', aliases: ['지적내용', '내용', 'content'], required: true },
+  { key: 'action', aliases: ['조치요구', '시정·조치요구', 'action'] },
+  { key: 'proc', aliases: ['처리상태', '처리', 'proc'], allowed: ISSUE_PROCS, fallback: '미처리' },
+];
+
+const TEMPLATE_COLUMNS = [
+  { header: '일자', value: () => '' },
+  { header: '부서', value: () => '' },
+  { header: '유형', value: () => '' },
+  { header: '지적내용', value: () => '' },
+  { header: '조치요구', value: () => '' },
+  { header: '처리상태', value: () => '' },
+];
 
 const TYPE_COLOR: Record<string, string> = {
   '위법': '#C62828',
@@ -53,6 +72,8 @@ export default function IssuesPage() {
   const [saving, setSaving] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileMsg, setFileMsg] = useState('');
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 검색·필터
   const [q, setQ] = useState('');
   const [deptFilter, setDeptFilter] = useState('전체');
@@ -222,6 +243,29 @@ export default function IssuesPage() {
     ]);
   }
 
+  function handleTemplate() {
+    exportTemplate(`지적사항_양식`, '지적사항', TEMPLATE_COLUMNS);
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      await importExcel({
+        file,
+        label: '지적사항',
+        base: { committee },
+        fields: IMPORT_FIELDS,
+        insert: async (records) => supabase.from('issues').insert(records),
+        onDone: fetchIssues,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const setField = (k: keyof FormState) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -235,7 +279,27 @@ export default function IssuesPage() {
         <h1 className="text-xl font-bold text-[#1F4E79]">
           지적사항{committee ? ` — ${committee}` : ''}
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <button
+            onClick={handleTemplate}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            양식 다운로드
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="rounded-lg border border-[#1F4E79] bg-white px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+          >
+            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+          </button>
           <button
             onClick={handleExport}
             disabled={filtered.length === 0}

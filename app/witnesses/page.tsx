@@ -1,12 +1,35 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import { exportSheet } from '@/lib/exportXlsx';
+import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
+import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { WITNESS_KINDS, WITNESS_ATTENDS } from '@/lib/types';
 import type { Witness } from '@/lib/types';
+
+const IMPORT_FIELDS: ImportField[] = [
+  { key: 'kind', aliases: ['구분', 'kind'], allowed: WITNESS_KINDS, fallback: '증인' },
+  { key: 'name', aliases: ['성명', '이름', 'name'], required: true },
+  { key: 'org', aliases: ['소속', 'org'] },
+  { key: 'pos', aliases: ['직위', 'pos'] },
+  { key: 'dt', aliases: ['일시', 'dt'] },
+  { key: 'attend', aliases: ['출석', 'attend'], allowed: WITNESS_ATTENDS, fallback: '출석예정' },
+  { key: 'phone', aliases: ['연락처', 'phone'] },
+  { key: 'note', aliases: ['비고', 'note'] },
+];
+
+const TEMPLATE_COLUMNS = [
+  { header: '구분', value: () => '' },
+  { header: '성명', value: () => '' },
+  { header: '소속', value: () => '' },
+  { header: '직위', value: () => '' },
+  { header: '일시', value: () => '' },
+  { header: '출석', value: () => '' },
+  { header: '연락처', value: () => '' },
+  { header: '비고', value: () => '' },
+];
 
 const ATTEND_COLOR: Record<string, string> = {
   '출석예정': '#B45309',
@@ -49,6 +72,8 @@ export default function WitnessesPage() {
   const [saving, setSaving] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileMsg, setFileMsg] = useState('');
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchWitnesses = useCallback(async () => {
     const { data, error } = await supabase
@@ -176,6 +201,29 @@ export default function WitnessesPage() {
     ]);
   }
 
+  function handleTemplate() {
+    exportTemplate(`증인참고인_양식`, '증인참고인', TEMPLATE_COLUMNS);
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      await importExcel({
+        file,
+        label: '증인·참고인',
+        base: { committee },
+        fields: IMPORT_FIELDS,
+        insert: async (records) => supabase.from('witnesses').insert(records),
+        onDone: fetchWitnesses,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const setField = (k: keyof FormState) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -191,7 +239,27 @@ export default function WitnessesPage() {
         <h1 className="text-xl font-bold text-[#1F4E79]">
           증인·참고인{committee ? ` — ${committee}` : ''}
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <button
+            onClick={handleTemplate}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            양식 다운로드
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="rounded-lg border border-[#1F4E79] bg-white px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+          >
+            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+          </button>
           <button
             onClick={handleExport}
             disabled={witnesses.length === 0}
