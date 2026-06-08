@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportWorkbook, makeSheet } from '@/lib/exportXlsx';
+import AuditFlow from '@/components/AuditFlow';
+import CitizenReport from '@/components/CitizenReport';
 import type {
   MaterialRequest,
   Issue,
@@ -294,6 +296,12 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+
+          {/* 행정사무감사 절차 도식 */}
+          <AuditFlow />
+
+          {/* 행정사무감사 도민제보 */}
+          <CitizenReport />
 
           {/* Pending table */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-3">
