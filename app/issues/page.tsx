@@ -7,11 +7,12 @@ import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { ISSUE_TYPES, ISSUE_PROCS } from '@/lib/types';
-import type { Issue, Department, MaterialRequest } from '@/lib/types';
+import type { Issue, Department, MaterialRequest, Member } from '@/lib/types';
 
 const IMPORT_FIELDS: ImportField[] = [
   { key: 'date', aliases: ['일자', 'date'], type: 'date' },
   { key: 'dept', aliases: ['부서', '담당부서', 'dept'] },
+  { key: 'member', aliases: ['의원', '지적의원', '담당의원', 'member'] },
   { key: 'type', aliases: ['유형', 'type'], allowed: ISSUE_TYPES, fallback: '개선' },
   { key: 'content', aliases: ['지적내용', '내용', 'content'], required: true },
   { key: 'action', aliases: ['조치요구', '시정·조치요구', 'action'] },
@@ -21,6 +22,7 @@ const IMPORT_FIELDS: ImportField[] = [
 const TEMPLATE_COLUMNS = [
   { header: '일자', value: () => '' },
   { header: '부서', value: () => '' },
+  { header: '의원', value: () => '' },
   { header: '유형', value: () => '' },
   { header: '지적내용', value: () => '' },
   { header: '조치요구', value: () => '' },
@@ -43,6 +45,7 @@ const PROC_COLOR: Record<string, string> = {
 type FormState = {
   date: string;
   dept: string;
+  member: string;
   type: string;
   content: string;
   action: string;
@@ -55,6 +58,7 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   date: '',
   dept: '',
+  member: '',
   type: '개선',
   content: '',
   action: '',
@@ -64,10 +68,13 @@ const EMPTY_FORM: FormState = {
   file_name: '',
 };
 
+type ViewMode = 'list' | 'dept' | 'member';
+
 export default function IssuesPage() {
   const { committee } = useCommittee();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -80,10 +87,12 @@ export default function IssuesPage() {
   // 검색·필터
   const [q, setQ] = useState('');
   const [deptFilter, setDeptFilter] = useState('전체');
+  const [memberFilter, setMemberFilter] = useState('전체');
   const [typeFilter, setTypeFilter] = useState('전체');
   const [procFilter, setProcFilter] = useState('전체');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
 
   const fetchIssues = useCallback(async () => {
     const { data, error } = await supabase
@@ -103,17 +112,19 @@ export default function IssuesPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [deptRes, reqRes] = await Promise.all([
+      const [deptRes, reqRes, memRes] = await Promise.all([
         supabase.from('departments').select('*').eq('committee', committee).order('name'),
         supabase
           .from('material_requests')
           .select('*')
           .eq('committee', committee)
           .order('created_at', { ascending: false }),
+        supabase.from('members').select('*').eq('committee', committee),
       ]);
       if (cancelled) return;
       setDepartments((deptRes.data as Department[]) ?? []);
       setRequests((reqRes.data as MaterialRequest[]) ?? []);
+      setMembers((memRes.data as Member[]) ?? []);
       await fetchIssues();
       if (!cancelled) setLoading(false);
     }
@@ -166,6 +177,7 @@ export default function IssuesPage() {
       committee,
       date: form.date || null,
       dept: form.dept || null,
+      member: form.member || null,
       type: form.type,
       content: form.content.trim(),
       action: form.action || null,
@@ -209,13 +221,14 @@ export default function IssuesPage() {
 
   const filtered = issues.filter((r) => {
     if (deptFilter !== '전체' && r.dept !== deptFilter) return false;
+    if (memberFilter !== '전체' && r.member !== memberFilter) return false;
     if (typeFilter !== '전체' && r.type !== typeFilter) return false;
     if (procFilter !== '전체' && r.proc !== procFilter) return false;
     if (fromDate && (!r.date || r.date < fromDate)) return false;
     if (toDate && (!r.date || r.date > toDate)) return false;
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
-      const hay = `${r.content} ${r.action ?? ''} ${r.dept ?? ''}`.toLowerCase();
+      const hay = `${r.content} ${r.action ?? ''} ${r.dept ?? ''} ${r.member ?? ''}`.toLowerCase();
       if (!hay.includes(needle)) return false;
     }
     return true;
@@ -223,9 +236,43 @@ export default function IssuesPage() {
 
   const requestMap = new Map(requests.map((r) => [r.id, r]));
 
+  // 의원 선택 옵션: 등록된 의원 + 지적사항에 입력된 의원명(미등록 포함)
+  const memberOptions = (() => {
+    const set = new Set<string>();
+    for (const m of members) set.add(m.name);
+    for (const r of issues) if (r.member) set.add(r.member);
+    return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
+  })();
+
+  // 부서별 / 의원별 그룹핑
+  const groups = (() => {
+    if (viewMode === 'list') return [];
+    const key = viewMode === 'dept' ? 'dept' : 'member';
+    const map = new Map<string, Issue[]>();
+    for (const r of filtered) {
+      const g = (r[key] as string | null) || '(미지정)';
+      const arr = map.get(g);
+      if (arr) arr.push(r);
+      else map.set(g, [r]);
+    }
+    return [...map.entries()]
+      .map(([name, rows]) => ({
+        name,
+        rows,
+        done: rows.filter((x) => x.proc === '처리완료').length,
+      }))
+      // 미지정은 맨 뒤, 그 외 건수 많은 순
+      .sort((a, b) => {
+        if (a.name === '(미지정)') return 1;
+        if (b.name === '(미지정)') return -1;
+        return b.rows.length - a.rows.length;
+      });
+  })();
+
   const filterActive =
     q.trim() !== '' ||
     deptFilter !== '전체' ||
+    memberFilter !== '전체' ||
     typeFilter !== '전체' ||
     procFilter !== '전체' ||
     fromDate !== '' ||
@@ -234,6 +281,7 @@ export default function IssuesPage() {
   function resetFilters() {
     setQ('');
     setDeptFilter('전체');
+    setMemberFilter('전체');
     setTypeFilter('전체');
     setProcFilter('전체');
     setFromDate('');
@@ -244,6 +292,7 @@ export default function IssuesPage() {
     exportSheet(`지적사항_${committee}`, '지적사항', filtered, [
       { header: '일자', value: (r) => r.date ?? '' },
       { header: '부서', value: (r) => r.dept ?? '' },
+      { header: '의원', value: (r) => r.member ?? '' },
       { header: '유형', value: (r) => r.type },
       { header: '지적내용', value: (r) => r.content },
       { header: '조치요구', value: (r) => r.action ?? '' },
@@ -283,6 +332,90 @@ export default function IssuesPage() {
 
   const inputCls =
     'w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40';
+
+  const tableHead = (
+    <thead>
+      <tr className="border-b border-gray-200 text-left text-gray-700">
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">일자</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">부서</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">의원</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">유형</th>
+        <th className="py-2 px-3 font-semibold">지적내용</th>
+        <th className="py-2 px-3 font-semibold">조치요구</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">관련 자료요구</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">처리</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
+      </tr>
+    </thead>
+  );
+
+  function renderRow(r: Issue) {
+    return (
+      <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 align-top">
+        <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.date ?? '—'}</td>
+        <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
+        <td className="py-2 px-3 text-gray-700 whitespace-nowrap">{r.member ?? '—'}</td>
+        <td className="py-2 px-3">
+          <span
+            className="inline-block text-xs font-medium rounded px-2 py-0.5 text-white"
+            style={{ backgroundColor: TYPE_COLOR[r.type] ?? '#555' }}
+          >
+            {r.type}
+          </span>
+        </td>
+        <td className="py-2 px-3 text-gray-800 max-w-xs">{r.content}</td>
+        <td className="py-2 px-3 text-gray-600 max-w-xs">{r.action ?? '—'}</td>
+        <td className="py-2 px-3 text-gray-600 max-w-[12rem]">
+          {r.request_id && requestMap.has(r.request_id) ? (
+            <span
+              className="inline-block text-xs rounded bg-[#1F4E79]/10 text-[#1F4E79] px-2 py-0.5 truncate max-w-full"
+              title={requestMap.get(r.request_id)!.title}
+            >
+              🔗 {requestMap.get(r.request_id)!.title}
+            </span>
+          ) : (
+            <span className="text-gray-400">—</span>
+          )}
+        </td>
+        <td className="py-2 px-3 whitespace-nowrap">
+          {r.file_url ? (
+            <a
+              href={r.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#1F4E79] underline hover:opacity-80"
+              title={r.file_name ?? ''}
+            >
+              파일
+            </a>
+          ) : (
+            <span className="text-gray-400">—</span>
+          )}
+        </td>
+        <td className="py-2 px-3">
+          <select
+            value={r.proc}
+            onChange={(e) => updateProc(r.id, e.target.value)}
+            className="text-xs font-medium rounded px-2 py-1 text-white border-0 focus:outline-none cursor-pointer"
+            style={{ backgroundColor: PROC_COLOR[r.proc] ?? '#555' }}
+          >
+            {ISSUE_PROCS.map((p) => (
+              <option key={p} value={p} className="bg-white text-gray-900">{p}</option>
+            ))}
+          </select>
+        </td>
+        <td className="py-2 px-3 whitespace-nowrap">
+          <button
+            onClick={() => handleDelete(r.id)}
+            className="text-xs text-[#C62828] hover:underline"
+          >
+            삭제
+          </button>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -344,6 +477,21 @@ export default function IssuesPage() {
                 <option key={d.id} value={d.name}>{d.name}</option>
               ))}
             </select>
+          </label>
+          <label className="text-sm text-gray-700 flex flex-col gap-1">
+            지적 의원
+            <input
+              value={form.member}
+              onChange={setField('member')}
+              list="issue-member-list"
+              placeholder="의원명 (직접 입력 또는 선택)"
+              className={inputCls}
+            />
+            <datalist id="issue-member-list">
+              {members.map((m) => (
+                <option key={m.id} value={m.name} />
+              ))}
+            </datalist>
           </label>
           <label className="text-sm text-gray-700 flex flex-col gap-1">
             유형
@@ -455,6 +603,15 @@ export default function IssuesPage() {
           </select>
         </label>
         <label className="text-xs text-gray-600 flex flex-col gap-1">
+          의원
+          <select value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)} className={inputCls}>
+            <option value="전체">전체</option>
+            {memberOptions.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-600 flex flex-col gap-1">
           유형
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls}>
             <option value="전체">전체</option>
@@ -490,6 +647,30 @@ export default function IssuesPage() {
         )}
       </div>
 
+      {/* 보기 방식: 목록 / 부서별 / 의원별 */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500">정리 방식</span>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+          {([
+            ['list', '목록'],
+            ['dept', '부서별'],
+            ['member', '의원별'],
+          ] as [ViewMode, string][]).map(([mode, label], i) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-gray-200' : ''} ${
+                viewMode === mode
+                  ? 'bg-[#1F4E79] text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
         {loading ? (
           <p className="text-sm text-gray-500 py-4 text-center">불러오는 중...</p>
@@ -497,91 +678,38 @@ export default function IssuesPage() {
           <p className="text-sm text-gray-500 py-6 text-center">등록된 지적사항이 없습니다.</p>
         ) : filtered.length === 0 ? (
           <p className="text-sm text-gray-500 py-6 text-center">검색 조건에 맞는 지적사항이 없습니다.</p>
-        ) : (
+        ) : viewMode === 'list' ? (
           <div className="overflow-x-auto">
             <p className="text-sm text-gray-600 mb-3">
               총 {filtered.length}건{filterActive ? ` (전체 ${issues.length}건)` : ''}
             </p>
             <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-700">
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">일자</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">부서</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">유형</th>
-                  <th className="py-2 px-3 font-semibold">지적내용</th>
-                  <th className="py-2 px-3 font-semibold">조치요구</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">관련 자료요구</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap">처리</th>
-                  <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 align-top">
-                    <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.date ?? '—'}</td>
-                    <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
-                    <td className="py-2 px-3">
-                      <span
-                        className="inline-block text-xs font-medium rounded px-2 py-0.5 text-white"
-                        style={{ backgroundColor: TYPE_COLOR[r.type] ?? '#555' }}
-                      >
-                        {r.type}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-gray-800 max-w-xs">{r.content}</td>
-                    <td className="py-2 px-3 text-gray-600 max-w-xs">{r.action ?? '—'}</td>
-                    <td className="py-2 px-3 text-gray-600 max-w-[12rem]">
-                      {r.request_id && requestMap.has(r.request_id) ? (
-                        <span
-                          className="inline-block text-xs rounded bg-[#1F4E79]/10 text-[#1F4E79] px-2 py-0.5 truncate max-w-full"
-                          title={requestMap.get(r.request_id)!.title}
-                        >
-                          🔗 {requestMap.get(r.request_id)!.title}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 whitespace-nowrap">
-                      {r.file_url ? (
-                        <a
-                          href={r.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[#1F4E79] underline hover:opacity-80"
-                          title={r.file_name ?? ''}
-                        >
-                          파일
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3">
-                      <select
-                        value={r.proc}
-                        onChange={(e) => updateProc(r.id, e.target.value)}
-                        className="text-xs font-medium rounded px-2 py-1 text-white border-0 focus:outline-none cursor-pointer"
-                        style={{ backgroundColor: PROC_COLOR[r.proc] ?? '#555' }}
-                      >
-                        {ISSUE_PROCS.map((p) => (
-                          <option key={p} value={p} className="bg-white text-gray-900">{p}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 px-3 whitespace-nowrap">
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        className="text-xs text-[#C62828] hover:underline"
-                      >
-                        삭제
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              {tableHead}
+              <tbody>{filtered.map(renderRow)}</tbody>
             </table>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <p className="text-sm text-gray-600">
+              총 {filtered.length}건{filterActive ? ` (전체 ${issues.length}건)` : ''} ·{' '}
+              {viewMode === 'dept' ? '부서별' : '의원별'} {groups.length}개 그룹
+            </p>
+            {groups.map((g) => (
+              <div key={g.name} className="rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
+                  <span className="font-semibold text-[#1F4E79]">{g.name}</span>
+                  <span className="text-xs text-gray-600">
+                    {g.rows.length}건 · 처리완료 {g.done}건
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    {tableHead}
+                    <tbody>{g.rows.map(renderRow)}</tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -61,6 +61,7 @@ export type Issue = {
   committee: string | null;
   date: string | null;
   dept: string | null;
+  member: string | null;
   type: string;
   content: string;
   action: string | null;
