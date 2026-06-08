@@ -58,7 +58,7 @@ export default function Sidebar() {
     <>
       {/* 모바일 상단 바 (md 미만에서만 표시) */}
       <header
-        className="fixed top-0 inset-x-0 z-20 h-14 flex items-center gap-3 px-4 md:hidden"
+        className="fixed top-0 inset-x-0 z-20 h-14 flex items-center gap-3 px-4 md:hidden print:hidden"
         style={{ backgroundColor: '#1F4E79', color: '#ffffff' }}
       >
         <button
@@ -91,6 +91,7 @@ export default function Sidebar() {
           'transform transition-transform duration-200 ease-out',
           open ? 'translate-x-0' : '-translate-x-full',
           'md:static md:translate-x-0 md:z-auto',
+          'print:hidden',
         ].join(' ')}
         style={{ backgroundColor: '#1F4E79', color: '#ffffff' }}
       >

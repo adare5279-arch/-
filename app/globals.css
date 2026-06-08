@@ -16,3 +16,14 @@ body {
   color: var(--foreground);
   font-family: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
 }
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+  main {
+    padding-top: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+}
