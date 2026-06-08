@@ -22,6 +22,7 @@ const NAV_SECTIONS = [
       { label: '소관부서', href: '/dept' },
       { label: '의원명부', href: '/members' },
       { label: '회의록', href: '/meetings' },
+      { label: '보도자료', href: '/press' },
     ],
   },
   {
