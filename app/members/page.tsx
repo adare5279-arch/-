@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
+import { ggcLinkFor, ggcMemberUrl } from '@/lib/ggc';
 import type { Member } from '@/lib/types';
 
 const IMPORT_FIELDS: ImportField[] = [
@@ -54,9 +55,12 @@ function PartyBadge({ party }: { party: string | null }) {
 
 function MemberCard({ m }: { m: Member }) {
   const [showImg, setShowImg] = useState(!!m.photo_url);
+  const committee = m.committee ?? '';
+  const href = ggcLinkFor(committee, m.name);
+  const isDirect = !!ggcMemberUrl(committee, m.name);
 
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col items-center gap-2 text-center">
+  const inner = (
+    <>
       {showImg && m.photo_url ? (
         <img
           src={m.photo_url}
@@ -70,19 +74,57 @@ function MemberCard({ m }: { m: Member }) {
         </div>
       )}
       <div>
-        <p className="font-bold text-gray-900">{m.name}</p>
+        <p className="font-bold text-gray-900 flex items-center justify-center gap-1">
+          {m.name}
+          {href && (
+            <svg
+              width="12" height="12" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+              strokeLinejoin="round" className="text-[#1F4E79]/60"
+              aria-hidden="true"
+            >
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          )}
+        </p>
         <p className="text-xs text-gray-500 mt-0.5">{m.role}</p>
       </div>
       <PartyBadge party={m.party} />
-      {m.district && (
-        <p className="text-xs text-gray-400">{m.district}</p>
-      )}
-    </div>
+      {m.district && <p className="text-xs text-gray-400">{m.district}</p>}
+    </>
+  );
+
+  const base =
+    'bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col items-center gap-2 text-center';
+
+  if (!href) {
+    return <div className={base}>{inner}</div>;
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={
+        isDirect
+          ? `${m.name} 의원 홈페이지 (경기도의회)`
+          : `${committee} 의원 목록 (경기도의회)`
+      }
+      className={`${base} transition-shadow hover:shadow-md hover:border-[#1F4E79]/40 cursor-pointer`}
+    >
+      {inner}
+    </a>
   );
 }
 
 function MemberRow({ m }: { m: Member }) {
   const [showImg, setShowImg] = useState(!!m.photo_url);
+  const committee = m.committee ?? '';
+  const href = ggcLinkFor(committee, m.name);
+  const isDirect = !!ggcMemberUrl(committee, m.name);
 
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50">
@@ -100,7 +142,35 @@ function MemberRow({ m }: { m: Member }) {
           </div>
         )}
       </td>
-      <td className="py-2 pr-4 font-medium text-gray-900">{m.name}</td>
+      <td className="py-2 pr-4 font-medium text-gray-900">
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={
+              isDirect
+                ? `${m.name} 의원 홈페이지 (경기도의회)`
+                : `${committee} 의원 목록 (경기도의회)`
+            }
+            className="inline-flex items-center gap-1 text-[#1F4E79] hover:underline"
+          >
+            {m.name}
+            <svg
+              width="12" height="12" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+              strokeLinejoin="round" className="opacity-60"
+              aria-hidden="true"
+            >
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </a>
+        ) : (
+          m.name
+        )}
+      </td>
       <td className="py-2 pr-4 text-gray-600">{m.role}</td>
       <td className="py-2 pr-4">
         <PartyBadge party={m.party} />
