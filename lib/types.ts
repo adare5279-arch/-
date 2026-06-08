@@ -33,6 +33,8 @@ export type MaterialRequest = {
   due_date: string | null;
   status: string;
   note: string | null;
+  file_url: string | null;
+  file_name: string | null;
   created_at: string;
 };
 

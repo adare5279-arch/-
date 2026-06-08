@@ -45,6 +45,8 @@ type FormState = {
   due_date: string;
   status: string;
   note: string;
+  file_url: string;
+  file_name: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -56,6 +58,8 @@ const EMPTY_FORM: FormState = {
   due_date: '',
   status: '미제출',
   note: '',
+  file_url: '',
+  file_name: '',
 };
 
 export default function DocsPage() {
@@ -70,6 +74,8 @@ export default function DocsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileMsg, setFileMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 검색·필터
   const [q, setQ] = useState('');
@@ -110,6 +116,34 @@ export default function DocsPage() {
     return () => { cancelled = true; };
   }, [committee, fetchRequests]);
 
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setFileBusy(true);
+    setFileMsg('업로드 중...');
+    try {
+      const ext = file.name.split('.').pop() || 'bin';
+      const path = `requests/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('report-files')
+        .upload(path, file, { upsert: true });
+      if (upErr) {
+        console.error('Storage upload error:', upErr);
+        setFileMsg('업로드에 실패했습니다.');
+        return;
+      }
+      const fileUrl = supabase.storage.from('report-files').getPublicUrl(path).data.publicUrl;
+      setForm((f) => ({ ...f, file_url: fileUrl, file_name: file.name }));
+      setFileMsg(`첨부 완료: ${file.name}`);
+    } catch (err) {
+      console.error('File upload error:', err);
+      setFileMsg('업로드 중 오류가 발생했습니다.');
+    } finally {
+      setFileBusy(false);
+    }
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim()) return;
@@ -124,6 +158,8 @@ export default function DocsPage() {
       due_date: form.due_date || null,
       status: form.status,
       note: form.note || null,
+      file_url: form.file_url || null,
+      file_name: form.file_name || null,
     });
     setSaving(false);
     if (error) {
@@ -132,6 +168,7 @@ export default function DocsPage() {
       return;
     }
     setForm(EMPTY_FORM);
+    setFileMsg('');
     setShowForm(false);
     await fetchRequests();
   }
@@ -198,6 +235,8 @@ export default function DocsPage() {
       { header: '마감일', value: r => r.due_date ?? '' },
       { header: '상태', value: r => r.status },
       { header: '비고', value: r => r.note ?? '' },
+      { header: '첨부파일', value: r => r.file_name ?? '' },
+      { header: '첨부링크', value: r => r.file_url ?? '' },
     ]);
   }
 
@@ -327,6 +366,35 @@ export default function DocsPage() {
             비고
             <textarea value={form.note} onChange={setField('note')} className={inputCls} rows={2} />
           </label>
+          <div className="sm:col-span-2 rounded-lg border border-dashed border-[#1F4E79]/40 bg-[#1F4E79]/5 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-medium text-[#1F4E79]">제출자료 첨부 (선택)</span>
+              <input
+                type="file"
+                onChange={handleFile}
+                disabled={fileBusy}
+                className="text-xs file:mr-2 file:rounded file:border-0 file:bg-[#1F4E79] file:px-3 file:py-1.5 file:text-white file:cursor-pointer disabled:opacity-50"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              부서가 제출한 자료 파일을 첨부해 두면 자료요구 건과 함께 보관됩니다.
+            </p>
+            {fileMsg && (
+              <p className={`text-xs ${fileBusy ? 'text-[#B45309]' : 'text-[#2E7D32]'}`}>{fileMsg}</p>
+            )}
+            {form.file_name && !fileBusy && (
+              <p className="text-xs text-gray-600">
+                첨부:{' '}
+                {form.file_url ? (
+                  <a href={form.file_url} target="_blank" rel="noopener noreferrer" className="text-[#1F4E79] underline">
+                    {form.file_name}
+                  </a>
+                ) : (
+                  form.file_name
+                )}
+              </p>
+            )}
+          </div>
           <div className="sm:col-span-2 flex justify-end">
             <button
               type="submit"
@@ -419,6 +487,7 @@ export default function DocsPage() {
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">담당부서</th>
                   <th className="py-2 px-3 font-semibold">요구자료명</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">마감일</th>
+                  <th className="py-2 px-3 font-semibold whitespace-nowrap">첨부</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap">상태</th>
                   <th className="py-2 px-3 font-semibold whitespace-nowrap"></th>
                 </tr>
@@ -430,6 +499,21 @@ export default function DocsPage() {
                     <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
                     <td className="py-2 px-3 text-gray-800">{r.title}</td>
                     <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.due_date ?? '—'}</td>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      {r.file_url ? (
+                        <a
+                          href={r.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#1F4E79] underline hover:opacity-80"
+                          title={r.file_name ?? ''}
+                        >
+                          파일
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3">
                       <select
                         value={r.status}
