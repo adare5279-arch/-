@@ -9,7 +9,10 @@ import { COMMITTEES } from '@/lib/types';
 const NAV_SECTIONS = [
   {
     title: '종합 현황',
-    items: [{ label: '대시보드', href: '/' }],
+    items: [
+      { label: '대시보드', href: '/' },
+      { label: '감사 일정', href: '/calendar' },
+    ],
   },
   {
     title: '자료 · 부서',
