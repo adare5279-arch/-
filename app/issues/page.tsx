@@ -6,7 +6,8 @@ import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
-import { ISSUE_TYPES, ISSUE_PROCS } from '@/lib/types';
+import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
+import { ISSUE_TYPES, ISSUE_PROCS, CORR_STATUSES } from '@/lib/types';
 import type { Issue, Department, MaterialRequest, Member } from '@/lib/types';
 
 const IMPORT_FIELDS: ImportField[] = [
@@ -41,6 +42,12 @@ const PROC_COLOR: Record<string, string> = {
   '처리중': '#B45309',
   '처리완료': '#2E7D32',
 };
+const CORR_COLOR: Record<string, string> = {
+  '미조치': '#C62828',
+  '조치중': '#B45309',
+  '조치완료': '#2E7D32',
+  '불수용': '#6A1B9A',
+};
 
 type FormState = {
   date: string;
@@ -68,7 +75,7 @@ const EMPTY_FORM: FormState = {
   file_name: '',
 };
 
-type ViewMode = 'list' | 'dept' | 'member';
+type ViewMode = 'list' | 'dept' | 'member' | 'corr';
 
 export default function IssuesPage() {
   const { committee } = useCommittee();
@@ -83,6 +90,10 @@ export default function IssuesPage() {
   const [fileBusy, setFileBusy] = useState(false);
   const [fileMsg, setFileMsg] = useState('');
   const [importing, setImporting] = useState(false);
+  // AI 초안
+  const [aiSource, setAiSource] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 검색·필터
   const [q, setQ] = useState('');
@@ -169,6 +180,56 @@ export default function IssuesPage() {
     }
   }
 
+  async function handleAiDraft() {
+    const source = (aiSource.trim() || form.content.trim());
+    if (!source) {
+      setAiMsg('회의 발언·자료 내용 등 원문을 먼저 입력하세요.');
+      return;
+    }
+    setAiBusy(true);
+    setAiMsg('AI가 지적사항 초안을 작성하는 중...');
+    try {
+      const system =
+        '당신은 지방의회 행정사무감사 보좌 전문위원입니다. 주어진 회의 발언·제출자료·메모를 근거로 ' +
+        '행정사무감사 지적사항 초안을 작성합니다. 반드시 아래 JSON 형식만 출력하세요. ' +
+        '추측은 피하고 원문에 근거하며, 문장은 공문 어투(~함, ~필요)로 간결하게 작성합니다.\n' +
+        '{"type":"위법|부당|개선|권고|주의 중 하나","content":"지적내용(2~4문장)","action":"시정·조치요구(1~2문장)"}';
+      const prompt = `다음 원문을 근거로 지적사항 초안을 JSON으로 작성하세요.\n\n[원문]\n${source}`;
+      const res = await fetch('/api/generate-query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: 'claude', system, prompt }),
+      });
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok || data.error) {
+        setAiMsg(data.error || 'AI 호출에 실패했습니다.');
+        return;
+      }
+      const raw = (data.text ?? '').trim();
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) {
+        setAiMsg('AI 응답을 해석하지 못했습니다. 다시 시도해주세요.');
+        return;
+      }
+      const parsed = JSON.parse(m[0]) as { type?: string; content?: string; action?: string };
+      const allowedType = (ISSUE_TYPES as readonly string[]).includes(parsed.type ?? '')
+        ? (parsed.type as string)
+        : form.type;
+      setForm((f) => ({
+        ...f,
+        type: allowedType,
+        content: parsed.content?.trim() || f.content,
+        action: parsed.action?.trim() || f.action,
+      }));
+      setAiMsg('초안이 채워졌습니다. 내용을 검토·수정한 뒤 저장하세요.');
+    } catch (err) {
+      console.error('AI draft error:', err);
+      setAiMsg('AI 초안 생성 중 오류가 발생했습니다.');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!form.content.trim()) return;
@@ -204,6 +265,16 @@ export default function IssuesPage() {
     const { error } = await supabase.from('issues').update({ proc }).eq('id', id);
     if (error) {
       console.error('Error updating proc:', error);
+      setIssues(prev);
+    }
+  }
+
+  async function updateCorr(id: number, patch: Partial<Issue>) {
+    const prev = issues;
+    setIssues((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const { error } = await supabase.from('issues').update(patch).eq('id', id);
+    if (error) {
+      console.error('Error updating corrective tracking:', error);
       setIssues(prev);
     }
   }
@@ -246,7 +317,7 @@ export default function IssuesPage() {
 
   // 부서별 / 의원별 그룹핑
   const groups = (() => {
-    if (viewMode === 'list') return [];
+    if (viewMode !== 'dept' && viewMode !== 'member') return [];
     const key = viewMode === 'dept' ? 'dept' : 'member';
     const map = new Map<string, Issue[]>();
     for (const r of filtered) {
@@ -297,6 +368,10 @@ export default function IssuesPage() {
       { header: '지적내용', value: (r) => r.content },
       { header: '조치요구', value: (r) => r.action ?? '' },
       { header: '처리상태', value: (r) => r.proc },
+      { header: '시정기한', value: (r) => r.corr_due ?? '' },
+      { header: '이행상태', value: (r) => r.corr_status ?? '' },
+      { header: '회신일', value: (r) => r.corr_reply_date ?? '' },
+      { header: '부서회신', value: (r) => r.corr_reply ?? '' },
       { header: '관련 자료요구', value: (r) => (r.request_id ? requestMap.get(r.request_id)?.title ?? '' : '') },
       { header: '첨부파일', value: (r) => r.file_name ?? '' },
       { header: '첨부링크', value: (r) => r.file_url ?? '' },
@@ -305,6 +380,54 @@ export default function IssuesPage() {
 
   function handleTemplate() {
     exportTemplate(`지적사항_양식`, '지적사항', TEMPLATE_COLUMNS);
+  }
+
+  // 부서별/의원별 지적사항 리포트 (한글·워드에서 열리는 .doc)
+  function downloadGroupReport(unit: '부서' | '의원', name: string, rows: Issue[]) {
+    const done = rows.filter((r) => r.proc === '처리완료').length;
+    const corrDone = rows.filter((r) => r.corr_status === '조치완료').length;
+    const today = new Date().toISOString().slice(0, 10);
+    const tableRows = rows
+      .map((r, i) => {
+        const overdue =
+          r.corr_due && r.corr_status !== '조치완료' && r.corr_due < today;
+        return `<tr>
+          <td class="center">${i + 1}</td>
+          <td class="center">${escapeHtml(r.date ?? '-')}</td>
+          <td class="center">${escapeHtml(r.type)}</td>
+          <td>${escapeHtml(r.content)}</td>
+          <td>${escapeHtml(r.action ?? '-')}</td>
+          <td class="center">${escapeHtml(r.corr_status ?? '-')}</td>
+          <td class="center">${escapeHtml(r.corr_due ?? '-')}${overdue ? ' (초과)' : ''}</td>
+          <td>${escapeHtml(r.corr_reply ?? '-')}</td>
+        </tr>`;
+      })
+      .join('');
+    const body = `
+      <h1>${escapeHtml(committee ?? '')} 행정사무감사<br/>${escapeHtml(unit)}별 지적사항 정리</h1>
+      <p class="center muted">${escapeHtml(unit)}: <b>${escapeHtml(name)}</b> · 출력일 ${today}</p>
+      <p>총 지적사항 <b>${rows.length}건</b> · 처리완료 ${done}건 · 시정 조치완료 ${corrDone}건</p>
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:4%">연번</th>
+            <th class="center" style="width:9%">일자</th>
+            <th class="center" style="width:7%">유형</th>
+            <th>지적내용</th>
+            <th>조치요구</th>
+            <th class="center" style="width:8%">이행상태</th>
+            <th class="center" style="width:10%">시정기한</th>
+            <th>부서회신</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+      <p class="muted">※ 본 리포트는 행정사무감사 자료관리 시스템에서 자동 생성되었습니다.</p>`;
+    downloadAsDoc(
+      `${committee ?? ''}_${unit}별_${name}_지적사항`,
+      body,
+      `${unit}별 지적사항 - ${name}`,
+    );
   }
 
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -412,6 +535,82 @@ export default function IssuesPage() {
           >
             삭제
           </button>
+        </td>
+      </tr>
+    );
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const corrInputCls =
+    'w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40';
+
+  const corrHead = (
+    <thead>
+      <tr className="border-b border-gray-200 text-left text-gray-700">
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">일자</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">부서</th>
+        <th className="py-2 px-3 font-semibold">지적내용 / 조치요구</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">시정기한</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">이행상태</th>
+        <th className="py-2 px-3 font-semibold whitespace-nowrap">회신일</th>
+        <th className="py-2 px-3 font-semibold">부서 회신</th>
+      </tr>
+    </thead>
+  );
+
+  function renderCorrRow(r: Issue) {
+    const overdue =
+      !!r.corr_due && r.corr_status !== '조치완료' && r.corr_due < todayStr;
+    return (
+      <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 align-top">
+        <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.date ?? '—'}</td>
+        <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
+        <td className="py-2 px-3 text-gray-800 max-w-sm">
+          <p>{r.content}</p>
+          {r.action && <p className="text-xs text-gray-500 mt-0.5">조치요구: {r.action}</p>}
+        </td>
+        <td className="py-2 px-3 whitespace-nowrap">
+          <input
+            type="date"
+            value={r.corr_due ?? ''}
+            onChange={(e) => updateCorr(r.id, { corr_due: e.target.value || null })}
+            className={`${corrInputCls} ${overdue ? 'border-[#C62828] text-[#C62828]' : ''}`}
+          />
+          {overdue && <span className="block text-[10px] text-[#C62828] mt-0.5">기한 초과</span>}
+        </td>
+        <td className="py-2 px-3">
+          <select
+            value={r.corr_status ?? ''}
+            onChange={(e) => updateCorr(r.id, { corr_status: e.target.value || null })}
+            className="text-xs font-medium rounded px-2 py-1 text-white border-0 focus:outline-none cursor-pointer"
+            style={{ backgroundColor: r.corr_status ? CORR_COLOR[r.corr_status] ?? '#555' : '#9CA3AF' }}
+          >
+            <option value="" className="bg-white text-gray-900">미지정</option>
+            {CORR_STATUSES.map((s) => (
+              <option key={s} value={s} className="bg-white text-gray-900">{s}</option>
+            ))}
+          </select>
+        </td>
+        <td className="py-2 px-3 whitespace-nowrap">
+          <input
+            type="date"
+            value={r.corr_reply_date ?? ''}
+            onChange={(e) => updateCorr(r.id, { corr_reply_date: e.target.value || null })}
+            className={corrInputCls}
+          />
+        </td>
+        <td className="py-2 px-3 min-w-[12rem]">
+          <textarea
+            defaultValue={r.corr_reply ?? ''}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== (r.corr_reply ?? '')) updateCorr(r.id, { corr_reply: v || null });
+            }}
+            rows={2}
+            placeholder="부서 회신·이행 결과 입력 후 클릭 해제 시 저장"
+            className={corrInputCls}
+          />
         </td>
       </tr>
     );
@@ -563,6 +762,32 @@ export default function IssuesPage() {
               </p>
             )}
           </div>
+          <div className="sm:col-span-2 rounded-lg border border-dashed border-[#6A1B9A]/40 bg-[#6A1B9A]/5 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-medium text-[#6A1B9A]">AI 지적사항 초안 (선택)</span>
+              <button
+                type="button"
+                onClick={handleAiDraft}
+                disabled={aiBusy}
+                className="rounded bg-[#6A1B9A] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition disabled:opacity-50"
+              >
+                {aiBusy ? '생성 중...' : 'AI 초안 생성'}
+              </button>
+            </div>
+            <textarea
+              value={aiSource}
+              onChange={(e) => setAiSource(e.target.value)}
+              className={inputCls}
+              rows={3}
+              placeholder="회의 발언·제출자료·메모 등 원문을 붙여넣으면 유형·지적내용·조치요구 초안을 자동 작성합니다. (비워두면 아래 지적내용을 근거로 사용)"
+            />
+            <p className="text-xs text-gray-500">
+              AI 초안은 참고용입니다. 생성 후 반드시 사실관계를 검토·수정한 뒤 저장하세요.
+            </p>
+            {aiMsg && (
+              <p className={`text-xs ${aiBusy ? 'text-[#B45309]' : 'text-[#2E7D32]'}`}>{aiMsg}</p>
+            )}
+          </div>
           <label className="text-sm text-gray-700 flex flex-col gap-1 sm:col-span-2">
             지적내용
             <textarea value={form.content} onChange={setField('content')} className={inputCls} rows={2} required />
@@ -655,6 +880,7 @@ export default function IssuesPage() {
             ['list', '목록'],
             ['dept', '부서별'],
             ['member', '의원별'],
+            ['corr', '사후관리'],
           ] as [ViewMode, string][]).map(([mode, label], i) => (
             <button
               key={mode}
@@ -688,6 +914,23 @@ export default function IssuesPage() {
               <tbody>{filtered.map(renderRow)}</tbody>
             </table>
           </div>
+        ) : viewMode === 'corr' ? (
+          <div className="overflow-x-auto">
+            <p className="text-sm text-gray-600 mb-3">
+              시정요구 사후관리 · 총 {filtered.length}건
+              {(() => {
+                const od = filtered.filter(
+                  (r) => r.corr_due && r.corr_status !== '조치완료' && r.corr_due < todayStr,
+                ).length;
+                const dn = filtered.filter((r) => r.corr_status === '조치완료').length;
+                return ` · 조치완료 ${dn}건${od ? ` · 기한초과 ${od}건` : ''}`;
+              })()}
+            </p>
+            <table className="w-full text-sm border-collapse">
+              {corrHead}
+              <tbody>{filtered.map(renderCorrRow)}</tbody>
+            </table>
+          </div>
         ) : (
           <div className="space-y-6">
             <p className="text-sm text-gray-600">
@@ -698,9 +941,19 @@ export default function IssuesPage() {
               <div key={g.name} className="rounded-lg border border-gray-200">
                 <div className="flex items-center justify-between gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
                   <span className="font-semibold text-[#1F4E79]">{g.name}</span>
-                  <span className="text-xs text-gray-600">
-                    {g.rows.length}건 · 처리완료 {g.done}건
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-600">
+                      {g.rows.length}건 · 처리완료 {g.done}건
+                    </span>
+                    <button
+                      onClick={() =>
+                        downloadGroupReport(viewMode === 'dept' ? '부서' : '의원', g.name, g.rows)
+                      }
+                      className="rounded border border-[#1F4E79] px-2 py-1 text-xs font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors whitespace-nowrap"
+                    >
+                      리포트 다운로드
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm border-collapse">

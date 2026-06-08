@@ -70,6 +70,11 @@ export type Issue = {
   file_url: string | null;
   file_name: string | null;
   created_at: string;
+  // 시정요구 사후관리
+  corr_due: string | null;        // 시정 기한
+  corr_status: string | null;     // 이행 상태
+  corr_reply: string | null;      // 부서 회신 내용
+  corr_reply_date: string | null; // 회신일
 };
 
 export type Witness = {
@@ -125,5 +130,7 @@ export type ActivityLog = {
 
 export const ISSUE_TYPES = ["위법", "부당", "개선", "권고", "주의"] as const;
 export const ISSUE_PROCS = ["미처리", "처리중", "처리완료"] as const;
+// 시정요구 사후관리 이행 상태
+export const CORR_STATUSES = ["미조치", "조치중", "조치완료", "불수용"] as const;
 export const WITNESS_KINDS = ["증인", "참고인"] as const;
 export const WITNESS_ATTENDS = ["출석예정", "출석완료", "불출석"] as const;
