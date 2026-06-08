@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
+import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import {
   ISSUE_TYPES,
@@ -184,6 +185,89 @@ export default function ReportPage() {
     return parts.join(' ');
   })();
 
+  function handleHwp() {
+    const year = new Date().getFullYear();
+    const esc = escapeHtml;
+    const parts: string[] = [];
+
+    // 표지
+    parts.push(
+      `<h1>${year}년도 행정사무감사 결과보고서</h1>`,
+      `<p class="center" style="font-size:13pt;font-weight:bold;">${esc(committee)}</p>`,
+      `<p class="center muted">작성일: ${new Date().toISOString().slice(0, 10)}</p>`,
+      '<hr/>',
+    );
+
+    // 목차
+    parts.push('<h2>목 차</h2>', '<p>');
+    SECTIONS.forEach((s) => parts.push(`${s.no}. ${esc(s.title)}<br/>`));
+    parts.push('</p>');
+
+    // 요약
+    parts.push(
+      '<h2>감사 결과 요약</h2>',
+      '<table><tr><th>구분</th><th>건수</th><th>처리·출석·제출</th></tr>',
+      `<tr><td>지적사항</td><td class="center">${issues.length}건</td><td>처리완료 ${issuesDone}건 (${issueRate}%)</td></tr>`,
+      `<tr><td>증인·참고인</td><td class="center">${witnesses.length}명</td><td>출석 ${witnessAttended}명 (${witnessRate}%)</td></tr>`,
+      `<tr><td>자료요구</td><td class="center">${requests.length}건</td><td>제출 ${reqSubmitted}건 (${reqRate}%)</td></tr>`,
+      '</table>',
+    );
+
+    const countTable = (title: string, rows: { label: string; count: number }[], foot?: string) => {
+      const body = rows
+        .map((r) => `<tr><td>${esc(r.label)}</td><td class="center">${r.count}</td></tr>`)
+        .join('');
+      return `<h3>${esc(title)}</h3><table><tr><th>구분</th><th>건수</th></tr>${body}</table>${
+        foot ? `<p class="muted">${esc(foot)}</p>` : ''
+      }`;
+    };
+
+    parts.push('<h2>감사 결과 자동 집계</h2>');
+    parts.push(countTable('지적사항 유형별', ISSUE_TYPES.map((t) => ({ label: t, count: issues.filter((i) => i.type === t).length }))));
+    parts.push(countTable('지적사항 처리상태별', procCounts.map((p) => ({ label: p.proc, count: p.count })), `처리율 ${issueRate}%`));
+    parts.push(countTable('부서별 지적사항', deptCounts.map((d) => ({ label: d.dept, count: d.count }))));
+    parts.push(countTable('자료요구 제출현황', reqStatusCounts.map((s) => ({ label: s.status, count: s.count })), `제출률 ${reqRate}%`));
+
+    // 본문 섹션
+    SECTIONS.forEach((s) => {
+      parts.push(`<h2>${s.no}. ${esc(s.title)}</h2>`);
+      const row = getRow(s.key);
+      const text =
+        s.key === 'summary' && !row.content.trim() ? autoSummary : row.content;
+      if (text.trim()) parts.push(`<p>${esc(text)}</p>`);
+
+      if (s.kind === 'issues') {
+        if (issues.length === 0) parts.push('<p class="muted">등록된 지적사항이 없습니다.</p>');
+        else {
+          parts.push(
+            '<table><tr><th>번호</th><th>부서</th><th>유형</th><th>지적내용</th><th>시정·조치요구</th><th>처리</th></tr>',
+          );
+          issues.forEach((r, i) =>
+            parts.push(
+              `<tr><td class="center">${i + 1}</td><td>${esc(r.dept ?? '')}</td><td>${esc(r.type)}</td><td>${esc(r.content)}</td><td>${esc(r.action ?? '')}</td><td>${esc(r.proc)}</td></tr>`,
+            ),
+          );
+          parts.push('</table>');
+        }
+      }
+
+      if (s.kind === 'witnesses') {
+        if (witnesses.length === 0) parts.push('<p class="muted">등록된 증인·참고인이 없습니다.</p>');
+        else {
+          parts.push('<table><tr><th>구분</th><th>성명</th><th>소속·직위</th><th>일시</th><th>출석</th></tr>');
+          witnesses.forEach((r) =>
+            parts.push(
+              `<tr><td>${esc(r.kind)}</td><td>${esc(r.name)}</td><td>${esc([r.org, r.pos].filter(Boolean).join(' / '))}</td><td>${esc(r.dt ?? '')}</td><td>${esc(r.attend)}</td></tr>`,
+            ),
+          );
+          parts.push('</table>');
+        }
+      }
+    });
+
+    downloadAsDoc(`행정사무감사_결과보고서_${committee}`, parts.join('\n'), `${year}년도 행정사무감사 결과보고서`);
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -216,10 +300,16 @@ export default function ReportPage() {
             엑셀 저장
           </button>
           <button
+            onClick={handleHwp}
+            className="rounded-lg border border-[#1F4E79] bg-white px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors"
+          >
+            한글(HWP) 다운로드
+          </button>
+          <button
             onClick={() => window.print()}
             className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
           >
-            인쇄 / PDF
+            PDF 저장 / 인쇄
           </button>
         </div>
       </div>
