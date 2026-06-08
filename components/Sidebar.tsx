@@ -30,6 +30,7 @@ const NAV_SECTIONS = [
       { label: '지적사항', href: '/issues' },
       { label: '증인·참고인', href: '/witnesses' },
       { label: '결과보고서', href: '/report' },
+      { label: '근거법령', href: '/laws' },
     ],
   },
   {
