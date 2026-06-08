@@ -33,7 +33,10 @@ const NAV_SECTIONS = [
   },
   {
     title: '도구',
-    items: [{ label: 'AI 질의서', href: '/query' }],
+    items: [
+      { label: '통합 검색', href: '/search' },
+      { label: 'AI 질의서', href: '/query' },
+    ],
   },
 ] as const;
 
