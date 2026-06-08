@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
 import MeetingStatementsModal from '@/components/MeetingStatementsModal';
+import AudioMinutes from '@/components/AudioMinutes';
 import type { Meeting } from '@/lib/types';
 
 type YearFilter = '전체' | 2023 | 2024 | 2025;
@@ -85,6 +86,9 @@ export default function MeetingsPage() {
           엑셀 저장
         </button>
       </div>
+
+      {/* 녹음 자동 회의록 */}
+      <AudioMinutes committee={committee} />
 
       {/* Year filter */}
       <div className="flex gap-2 flex-wrap">

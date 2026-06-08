@@ -118,6 +118,18 @@ export type MeetingStatement = {
   created_at: string;
 };
 
+export type MeetingMinutes = {
+  id: number;
+  committee: string | null;
+  title: string | null;
+  meeting_date: string | null;
+  audio_url: string | null;
+  audio_name: string | null;
+  transcript: string | null;
+  summary: string | null;
+  created_at: string;
+};
+
 export type ActivityLog = {
   id: number;
   table_name: string;
