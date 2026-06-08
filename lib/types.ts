@@ -99,6 +99,16 @@ export type ScheduleEvent = {
 
 export const SCHEDULE_KINDS = ["감사", "회의", "현장방문", "일정"] as const;
 
+export type ActivityLog = {
+  id: number;
+  table_name: string;
+  op: string;
+  row_id: number | null;
+  committee: string | null;
+  summary: string | null;
+  created_at: string;
+};
+
 export const ISSUE_TYPES = ["위법", "부당", "개선", "권고", "주의"] as const;
 export const ISSUE_PROCS = ["미처리", "처리중", "처리완료"] as const;
 export const WITNESS_KINDS = ["증인", "참고인"] as const;
