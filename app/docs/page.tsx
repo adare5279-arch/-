@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { REQUEST_STATUSES } from '@/lib/types';
 import { exportSheet } from '@/lib/exportXlsx';
+import { parseSheetRows, cellText, normalizeDate } from '@/lib/importXlsx';
 import type { MaterialRequest, Member, Department } from '@/lib/types';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -47,6 +48,8 @@ export default function DocsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 검색·필터
   const [q, setQ] = useState('');
   const [deptFilter, setDeptFilter] = useState('전체');
@@ -177,6 +180,70 @@ export default function DocsPage() {
     ]);
   }
 
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 같은 파일 재선택 허용
+    if (!file) return;
+    setImporting(true);
+    try {
+      const rows = await parseSheetRows(file);
+      const statusSet = new Set<string>(REQUEST_STATUSES);
+      const records: Record<string, unknown>[] = [];
+      let skipped = 0;
+
+      for (const row of rows) {
+        const title = cellText(row['요구자료명'] ?? row['제목'] ?? row['title']);
+        if (!title) {
+          skipped++;
+          continue;
+        }
+        const rawStatus = cellText(row['상태'] ?? row['status']);
+        records.push({
+          committee,
+          member: cellText(row['의원'] ?? row['member']) || null,
+          dept_main: cellText(row['주관부서'] ?? row['dept_main']) || null,
+          dept: cellText(row['담당부서'] ?? row['부서'] ?? row['dept']) || null,
+          title,
+          req_date: normalizeDate(row['요구일'] ?? row['req_date']) || null,
+          due_date: normalizeDate(row['마감일'] ?? row['due_date']) || null,
+          status: statusSet.has(rawStatus) ? rawStatus : '미제출',
+          note: cellText(row['비고'] ?? row['note']) || null,
+        });
+      }
+
+      if (records.length === 0) {
+        alert(
+          '등록할 데이터가 없습니다. "요구자료명" 열이 있는지 확인해 주세요.\n' +
+            '(엑셀 저장으로 받은 파일과 동일한 열 이름을 사용하면 됩니다.)'
+        );
+        return;
+      }
+
+      if (
+        !confirm(
+          `${records.length}건을 등록합니다.` +
+            (skipped > 0 ? ` (요구자료명이 없는 ${skipped}건은 제외)` : '') +
+            '\n계속하시겠습니까?'
+        )
+      )
+        return;
+
+      const { error } = await supabase.from('material_requests').insert(records);
+      if (error) {
+        console.error('Error importing requests:', error);
+        alert('가져오기에 실패했습니다.');
+        return;
+      }
+      await fetchRequests();
+      alert(`${records.length}건을 등록했습니다.`);
+    } catch (err) {
+      console.error('Error parsing file:', err);
+      alert('파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const setField = (k: keyof FormState) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -191,6 +258,20 @@ export default function DocsPage() {
           자료요구{committee ? ` — ${committee}` : ''}
         </h1>
         <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="rounded-lg border border-[#1F4E79] bg-white px-4 py-2 text-sm font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+          >
+            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+          </button>
           <button
             onClick={handleExport}
             disabled={filtered.length === 0}
