@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCommittee } from '@/lib/CommitteeContext';
@@ -94,22 +95,19 @@ export default function TopNav() {
       {/* 상단 브랜드 바 */}
       <div className="bg-white border-b border-gray-200">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-20 flex items-center justify-between gap-4">
-          <Link href="/" className="flex items-center gap-3 min-w-0">
-            {/* 상징 엠블럼 */}
-            <span
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white text-sm font-bold shadow-sm"
-              style={{ backgroundColor: '#1F4E79' }}
-              aria-hidden="true"
-            >
-              의회
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xs text-gray-500 font-medium leading-tight">
-                경기도의회
-              </span>
-              <span className="block text-lg sm:text-2xl font-extrabold text-[#1F4E79] leading-tight truncate">
-                행정사무감사 자료관리
-              </span>
+          <Link href="/" className="flex items-center gap-3 sm:gap-4 min-w-0">
+            {/* 경기도의회 공식 로고(엠블럼+워드마크) */}
+            <Image
+              src="/ggc-logo.png"
+              alt="경기도의회"
+              width={160}
+              height={50}
+              priority
+              className="h-9 sm:h-11 w-auto shrink-0"
+            />
+            <span className="hidden sm:block h-9 w-px bg-gray-200" aria-hidden="true" />
+            <span className="text-base sm:text-2xl font-extrabold text-[#1F4E79] leading-tight truncate">
+              행정사무감사 자료관리
             </span>
           </Link>
 
