@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { CommitteeProvider } from '@/lib/CommitteeContext';
-import Sidebar from '@/components/Sidebar';
+import TopNav from '@/components/TopNav';
 
 export const metadata: Metadata = {
   title: '경기도의회 행정사무감사 자료관리',
@@ -15,11 +15,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className="flex flex-row min-h-screen">
+      <body className="flex flex-col min-h-screen bg-gray-50">
         <CommitteeProvider>
-          <Sidebar />
-          <main className="flex-1 min-w-0 min-h-screen bg-gray-50 overflow-auto pt-14 md:pt-0">
-            {children}
+          <TopNav />
+          <main className="flex-1 min-w-0">
+            <div className="mx-auto max-w-7xl">{children}</div>
           </main>
         </CommitteeProvider>
       </body>
