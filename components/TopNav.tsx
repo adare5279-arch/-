@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { COMMITTEES } from '@/lib/types';
 
@@ -51,10 +51,19 @@ function isItemActive(pathname: string, href: string): boolean {
 
 export default function TopNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const { committee, setCommittee } = useCommittee();
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const navRef = useRef<HTMLDivElement>(null);
+
+  function submitSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const term = search.trim();
+    setMobileOpen(false);
+    router.push(term ? `/search?q=${encodeURIComponent(term)}` : '/search');
+  }
 
   // 라우트 변경 시 메뉴 닫기
   useEffect(() => {
@@ -74,12 +83,14 @@ export default function TopNav() {
   }, []);
 
   const committeeSelect = (
-    <label className="flex items-center gap-2 text-xs">
-      <span className="text-white/70 md:text-gray-500 whitespace-nowrap font-medium">위원회</span>
+    <label className="flex items-center gap-2">
+      <span className="text-sm text-white/70 md:text-gray-600 whitespace-nowrap font-semibold">
+        위원회
+      </span>
       <select
         value={committee}
         onChange={(e) => setCommittee(e.target.value)}
-        className="rounded px-2 py-1.5 text-sm bg-white text-gray-900 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40 max-w-[10rem]"
+        className="rounded px-3 py-2 text-base font-medium bg-white text-gray-900 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40 max-w-[14rem]"
       >
         {COMMITTEES.map((c) => (
           <option key={c} value={c}>
@@ -88,6 +99,32 @@ export default function TopNav() {
         ))}
       </select>
     </label>
+  );
+
+  const searchForm = (extraClass = '') => (
+    <form onSubmit={submitSearch} className={`flex items-center gap-2 ${extraClass}`}>
+      <span className="hidden lg:inline text-sm font-bold text-[#1F4E79] whitespace-nowrap">
+        통합검색
+      </span>
+      <div className="relative flex-1">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="검색어를 입력하세요."
+          className="w-full rounded-lg border-2 border-[#1F4E79]/30 bg-white pl-4 pr-10 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#1F4E79]/60 focus:ring-2 focus:ring-[#1F4E79]/20"
+        />
+        <button
+          type="submit"
+          aria-label="검색"
+          className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-[#1F4E79] hover:bg-[#1F4E79]/10"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+      </div>
+    </form>
   );
 
   return (
@@ -110,6 +147,9 @@ export default function TopNav() {
               행정사무감사 자료관리
             </span>
           </Link>
+
+          {/* 데스크톱: 가운데 통합검색 */}
+          <div className="hidden md:block flex-1 max-w-lg mx-4">{searchForm('w-full')}</div>
 
           {/* 데스크톱: 위원회 선택 */}
           <div className="hidden md:block">{committeeSelect}</div>
@@ -197,6 +237,7 @@ export default function TopNav() {
       {/* 모바일: 펼침 메뉴 */}
       {mobileOpen && (
         <div className="md:hidden border-t border-white/10 text-white" style={{ backgroundColor: '#1F4E79' }}>
+          <div className="px-4 py-3 border-b border-white/15">{searchForm('w-full')}</div>
           <div className="px-4 py-3 border-b border-white/15">{committeeSelect}</div>
           <nav className="px-2 py-3 max-h-[70vh] overflow-y-auto">
             {NAV_SECTIONS.map((section) => (

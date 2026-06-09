@@ -43,6 +43,12 @@ export default function SearchPage() {
   const [searched, setSearched] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 헤더 통합검색에서 넘어온 검색어(/search?q=...) 초기 적용
+  useEffect(() => {
+    const initial = new URLSearchParams(window.location.search).get('q');
+    if (initial) setQ(initial);
+  }, []);
+
   const runSearch = useCallback(
     async (term: string) => {
       const needle = escapeLike(term);
