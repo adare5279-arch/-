@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, deleteRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { SCHEDULE_KINDS } from '@/lib/types';
 import type { ScheduleEvent, Meeting, MaterialRequest } from '@/lib/types';
@@ -180,7 +181,7 @@ export default function CalendarPage() {
     e.preventDefault();
     if (!form.date || !form.title.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from('schedule_events').insert({
+    const { error } = await insertRows('schedule_events', {
       committee,
       date: form.date,
       title: form.title.trim(),
@@ -202,7 +203,7 @@ export default function CalendarPage() {
     if (!confirm('이 일정을 삭제하시겠습니까?')) return;
     const prev = events;
     setEvents(es => es.filter(e => e.id !== id));
-    const { error } = await supabase.from('schedule_events').delete().eq('id', id);
+    const { error } = await deleteRows('schedule_events', { id });
     if (error) {
       console.error('Error deleting event:', error);
       setEvents(prev);

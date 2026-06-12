@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, updateRows, deleteRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { REQUEST_STATUSES } from '@/lib/types';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
@@ -156,7 +157,7 @@ export default function DocsPage() {
     e.preventDefault();
     if (!form.title.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from('material_requests').insert({
+    const { error } = await insertRows('material_requests', {
       committee,
       member: form.member || null,
       dept_main: form.dept_main || null,
@@ -184,10 +185,7 @@ export default function DocsPage() {
   async function updateStatus(id: number, status: string) {
     const prev = requests;
     setRequests(rs => rs.map(r => (r.id === id ? { ...r, status } : r)));
-    const { error } = await supabase
-      .from('material_requests')
-      .update({ status })
-      .eq('id', id);
+    const { error } = await updateRows('material_requests', { status }, { id });
     if (error) {
       console.error('Error updating status:', error);
       setRequests(prev);
@@ -198,7 +196,7 @@ export default function DocsPage() {
     if (!confirm('이 자료요구를 삭제하시겠습니까?')) return;
     const prev = requests;
     setRequests(rs => rs.filter(r => r.id !== id));
-    const { error } = await supabase.from('material_requests').delete().eq('id', id);
+    const { error } = await deleteRows('material_requests', { id });
     if (error) {
       console.error('Error deleting request:', error);
       setRequests(prev);
@@ -263,7 +261,7 @@ export default function DocsPage() {
         label: '자료요구',
         base: { committee },
         fields: IMPORT_FIELDS,
-        insert: async (records) => supabase.from('material_requests').insert(records),
+        insert: (records) => insertRows('material_requests', records),
         onDone: fetchRequests,
       });
     } finally {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
@@ -245,7 +246,7 @@ export default function MembersPage() {
         label: '의원',
         base: { committee },
         fields: IMPORT_FIELDS,
-        insert: async (records) => supabase.from('members').insert(records),
+        insert: (records) => insertRows('members', records),
         onDone: fetchMembers,
       });
     } finally {

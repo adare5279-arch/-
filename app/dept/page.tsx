@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
@@ -70,7 +71,7 @@ export default function DeptPage() {
         label: '소관부서',
         base: { committee },
         fields: IMPORT_FIELDS,
-        insert: async (records) => supabase.from('departments').insert(records),
+        insert: (records) => insertRows('departments', records),
         onDone: fetchDepartments,
       });
     } finally {

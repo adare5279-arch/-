@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { upsertRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet } from '@/lib/exportXlsx';
 import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
@@ -595,7 +596,8 @@ function SectionEditor({
   async function handleSave() {
     setBusy(true);
     setStatus('저장 중...');
-    const { error } = await supabase.from('report_sections').upsert(
+    const { error } = await upsertRows(
+      'report_sections',
       {
         committee,
         section_key: section.key,
@@ -604,7 +606,7 @@ function SectionEditor({
         file_url: fileUrl,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'committee,section_key' }
+      { onConflict: 'committee,section_key' },
     );
     setBusy(false);
     if (error) {

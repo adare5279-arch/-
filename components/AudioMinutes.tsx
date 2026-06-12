@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, deleteRows } from '@/lib/dataApi';
 import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
 import {
   getOpenAiKey,
@@ -173,7 +174,7 @@ export default function AudioMinutes({ committee }: Props) {
   async function handleSave() {
     if (!transcript && !summary) return;
     setSaving(true);
-    const { error } = await supabase.from('meeting_minutes').insert({
+    const { error } = await insertRows('meeting_minutes', {
       committee,
       source: 'audio',
       title: title || audioName || '제목 없는 회의',
@@ -210,7 +211,7 @@ export default function AudioMinutes({ committee }: Props) {
     if (!confirm('이 회의록을 삭제하시겠습니까?')) return;
     const prev = list;
     setList((l) => l.filter((x) => x.id !== id));
-    const { error } = await supabase.from('meeting_minutes').delete().eq('id', id);
+    const { error } = await deleteRows('meeting_minutes', { id });
     if (error) {
       console.error('delete minutes error:', error);
       setList(prev);

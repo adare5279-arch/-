@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, deleteRows } from '@/lib/dataApi';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import {
   parseTurns,
@@ -149,8 +150,8 @@ export default function MeetingStatementsModal({
     });
 
     // 3) 기존 데이터 교체 후 저장
-    await supabase.from('meeting_statements').delete().eq('meeting_id', meeting.id);
-    const { error } = await supabase.from('meeting_statements').insert(rows);
+    await deleteRows('meeting_statements', { meeting_id: meeting.id });
+    const { error } = await insertRows('meeting_statements', rows);
     if (error) {
       console.error(error);
       setStatusMsg('저장에 실패했습니다: ' + error.message);
@@ -171,7 +172,7 @@ export default function MeetingStatementsModal({
 
   async function handleClear() {
     if (!confirm('저장된 발언 요약을 모두 삭제할까요?')) return;
-    await supabase.from('meeting_statements').delete().eq('meeting_id', meeting.id);
+    await deleteRows('meeting_statements', { meeting_id: meeting.id });
     await loadSaved();
     setStatusMsg('저장된 요약을 삭제했습니다.');
   }

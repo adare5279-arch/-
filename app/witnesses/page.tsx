@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, updateRows, deleteRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
@@ -140,7 +141,7 @@ export default function WitnessesPage() {
     e.preventDefault();
     if (!form.name.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from('witnesses').insert({
+    const { error } = await insertRows('witnesses', {
       committee,
       kind: form.kind,
       name: form.name.trim(),
@@ -168,7 +169,7 @@ export default function WitnessesPage() {
   async function updateAttend(id: number, attend: string) {
     const prev = witnesses;
     setWitnesses((rs) => rs.map((r) => (r.id === id ? { ...r, attend } : r)));
-    const { error } = await supabase.from('witnesses').update({ attend }).eq('id', id);
+    const { error } = await updateRows('witnesses', { attend }, { id });
     if (error) {
       console.error('Error updating attend:', error);
       setWitnesses(prev);
@@ -179,7 +180,7 @@ export default function WitnessesPage() {
     if (!confirm('이 증인·참고인을 삭제하시겠습니까?')) return;
     const prev = witnesses;
     setWitnesses((rs) => rs.filter((r) => r.id !== id));
-    const { error } = await supabase.from('witnesses').delete().eq('id', id);
+    const { error } = await deleteRows('witnesses', { id });
     if (error) {
       console.error('Error deleting witness:', error);
       setWitnesses(prev);
@@ -216,7 +217,7 @@ export default function WitnessesPage() {
         label: '증인·참고인',
         base: { committee },
         fields: IMPORT_FIELDS,
-        insert: async (records) => supabase.from('witnesses').insert(records),
+        insert: (records) => insertRows('witnesses', records),
         onDone: fetchWitnesses,
       });
     } finally {

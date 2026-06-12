@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { insertRows, updateRows, deleteRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
@@ -234,7 +235,7 @@ export default function IssuesPage() {
     e.preventDefault();
     if (!form.content.trim()) return;
     setSaving(true);
-    const { error } = await supabase.from('issues').insert({
+    const { error } = await insertRows('issues', {
       committee,
       date: form.date || null,
       dept: form.dept || null,
@@ -262,7 +263,7 @@ export default function IssuesPage() {
   async function updateProc(id: number, proc: string) {
     const prev = issues;
     setIssues((rs) => rs.map((r) => (r.id === id ? { ...r, proc } : r)));
-    const { error } = await supabase.from('issues').update({ proc }).eq('id', id);
+    const { error } = await updateRows('issues', { proc }, { id });
     if (error) {
       console.error('Error updating proc:', error);
       setIssues(prev);
@@ -272,7 +273,7 @@ export default function IssuesPage() {
   async function updateCorr(id: number, patch: Partial<Issue>) {
     const prev = issues;
     setIssues((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    const { error } = await supabase.from('issues').update(patch).eq('id', id);
+    const { error } = await updateRows('issues', patch, { id });
     if (error) {
       console.error('Error updating corrective tracking:', error);
       setIssues(prev);
@@ -283,7 +284,7 @@ export default function IssuesPage() {
     if (!confirm('이 지적사항을 삭제하시겠습니까?')) return;
     const prev = issues;
     setIssues((rs) => rs.filter((r) => r.id !== id));
-    const { error } = await supabase.from('issues').delete().eq('id', id);
+    const { error } = await deleteRows('issues', { id });
     if (error) {
       console.error('Error deleting issue:', error);
       setIssues(prev);
@@ -441,7 +442,7 @@ export default function IssuesPage() {
         label: '지적사항',
         base: { committee },
         fields: IMPORT_FIELDS,
-        insert: async (records) => supabase.from('issues').insert(records),
+        insert: (records) => insertRows('issues', records),
         onDone: fetchIssues,
       });
     } finally {
