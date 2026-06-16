@@ -22,6 +22,7 @@ const NAV_SECTIONS = [
       { label: '자료요구', href: '/docs' },
       { label: '소관부서', href: '/dept' },
       { label: '의원명부', href: '/members' },
+      { label: '의원별 발언', href: '/statements' },
       { label: '회의록', href: '/meetings' },
       { label: '보도자료', href: '/press' },
       { label: '자료 정리(ZIP)', href: '/archive' },

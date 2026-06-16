@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabaseClient';
 import { insertRows } from '@/lib/dataApi';
 import { useCommittee } from '@/lib/CommitteeContext';
@@ -63,9 +64,12 @@ function MemberCard({ m }: { m: Member }) {
   const inner = (
     <>
       {showImg && m.photo_url ? (
-        <img
+        <Image
           src={m.photo_url}
           alt={m.name}
+          width={64}
+          height={64}
+          loading="lazy"
           className="w-16 h-16 rounded-full object-cover border border-gray-200"
           onError={() => setShowImg(false)}
         />
@@ -131,9 +135,12 @@ function MemberRow({ m }: { m: Member }) {
     <tr className="border-b border-gray-50 hover:bg-gray-50">
       <td className="py-2 pr-4">
         {showImg && m.photo_url ? (
-          <img
+          <Image
             src={m.photo_url}
             alt={m.name}
+            width={40}
+            height={40}
+            loading="lazy"
             className="w-10 h-10 rounded-full object-cover border border-gray-200"
             onError={() => setShowImg(false)}
           />
