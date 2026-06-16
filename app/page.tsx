@@ -50,11 +50,11 @@ export default function DashboardPage() {
             .eq('committee', committee),
           supabase
             .from('issues')
-            .select('id,proc,type')
+            .select('id,proc,type,content,dept,corr_due,corr_status')
             .eq('committee', committee),
           supabase
             .from('witnesses')
-            .select('id,attend,kind')
+            .select('id,attend,kind,name,dt')
             .eq('committee', committee),
         ]);
 
@@ -210,6 +210,91 @@ export default function DashboardPage() {
     },
   ];
 
+  // ── 조치 필요 항목(액션 센터) ──────────────────────────────────────────
+  // 모든 데이터에서 가장 시급한 항목을 모아 우선순위로 보여주고,
+  // 클릭하면 원본 화면의 해당 행으로 바로 이동(?focus=id)한다.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const soonStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  type ActionItem = {
+    key: string;
+    category: '시정요구' | '자료요구' | '지적사항';
+    color: string;
+    title: string;
+    sub: string;
+    href: string;
+    rank: number; // 작을수록 시급
+  };
+
+  const actionItems: ActionItem[] = [];
+
+  // 1) 시정요구 사후관리 — 기한초과/임박 (가장 시급)
+  for (const i of issues) {
+    if (!i.corr_due || i.corr_status === '조치완료') continue;
+    const overdue = i.corr_due < todayStr;
+    const soon = !overdue && i.corr_due <= soonStr;
+    if (!overdue && !soon) continue;
+    actionItems.push({
+      key: `corr-${i.id}`,
+      category: '시정요구',
+      color: overdue ? '#C62828' : '#B45309',
+      title: i.content ?? '(내용 없음)',
+      sub: `${i.dept ?? '부서미상'} · 시정기한 ${i.corr_due}${overdue ? ' 초과' : ' 임박'}${
+        i.corr_status ? ` · ${i.corr_status}` : ''
+      }`,
+      href: `/issues?focus=${i.id}`,
+      rank: overdue ? 0 : 2,
+    });
+  }
+
+  // 2) 자료요구 — 마감초과/임박
+  for (const r of requests) {
+    if (r.status === '제출완료' || !r.due_date) continue;
+    const overdue = r.due_date < todayStr;
+    const soon = !overdue && r.due_date <= soonStr && r.due_date >= todayStr;
+    if (!overdue && !soon) continue;
+    actionItems.push({
+      key: `req-${r.id}`,
+      category: '자료요구',
+      color: overdue ? '#C62828' : '#B45309',
+      title: r.title,
+      sub: `${[r.member, r.dept].filter(Boolean).join(' · ') || '담당미상'} · 마감 ${r.due_date}${
+        overdue ? ' 초과' : ' 임박'
+      } · ${r.status}`,
+      href: `/docs?focus=${r.id}`,
+      rank: overdue ? 1 : 3,
+    });
+  }
+
+  // 3) 미처리 지적사항 (기한 정보 없는 일반 미처리)
+  for (const i of issues) {
+    if (i.proc !== '미처리') continue;
+    if (i.corr_due && i.corr_status !== '조치완료') continue; // 위 1)에서 이미 다룸
+    actionItems.push({
+      key: `iss-${i.id}`,
+      category: '지적사항',
+      color: '#1F4E79',
+      title: i.content ?? '(내용 없음)',
+      sub: `${i.dept ?? '부서미상'} · ${i.type} · 미처리`,
+      href: `/issues?focus=${i.id}`,
+      rank: 4,
+    });
+  }
+
+  actionItems.sort((a, b) => a.rank - b.rank);
+
+  const actionCounts = {
+    시정요구: actionItems.filter((a) => a.category === '시정요구').length,
+    자료요구: actionItems.filter((a) => a.category === '자료요구').length,
+    지적사항: actionItems.filter((a) => a.category === '지적사항').length,
+  };
+  const ACTION_LIMIT = 8;
+  const visibleActions = actionItems.slice(0, ACTION_LIMIT);
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -268,6 +353,66 @@ export default function DashboardPage() {
               증인·참고인{' '}
               <strong className="text-[#1F4E79] font-semibold">{witnessTotal}명</strong>
             </span>
+          </div>
+
+          {/* 조치 필요 항목 (액션 센터) */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h2 className="text-base font-semibold text-[#1F4E79]">
+                조치 필요 항목
+                {actionItems.length > 0 && (
+                  <span className="ml-2 text-sm font-bold text-[#C62828]">{actionItems.length}건</span>
+                )}
+              </h2>
+              <div className="flex gap-1.5 flex-wrap text-xs">
+                <span className="rounded-full bg-[#C62828]/10 text-[#C62828] px-2.5 py-1 font-semibold">
+                  시정요구 {actionCounts.시정요구}
+                </span>
+                <span className="rounded-full bg-[#B45309]/10 text-[#B45309] px-2.5 py-1 font-semibold">
+                  자료요구 {actionCounts.자료요구}
+                </span>
+                <span className="rounded-full bg-[#1F4E79]/10 text-[#1F4E79] px-2.5 py-1 font-semibold">
+                  미처리 지적 {actionCounts.지적사항}
+                </span>
+              </div>
+            </div>
+            {actionItems.length === 0 ? (
+              <p className="text-sm text-[#2E7D32] py-4 text-center">
+                ✓ 지금 당장 조치가 필요한 항목이 없습니다.
+              </p>
+            ) : (
+              <>
+                <ul className="divide-y divide-gray-100">
+                  {visibleActions.map((a) => (
+                    <li key={a.key}>
+                      <Link
+                        href={a.href}
+                        className="flex items-start gap-3 py-2.5 -mx-2 px-2 rounded hover:bg-gray-50 transition-colors"
+                      >
+                        <span
+                          className="shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                          style={{ backgroundColor: a.color }}
+                        >
+                          {a.category}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-gray-800 truncate">{a.title}</span>
+                          <span className="block text-xs text-gray-500">{a.sub}</span>
+                        </span>
+                        <span className="shrink-0 self-center text-xs text-[#1F4E79]" aria-hidden>
+                          원본 →
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {actionItems.length > ACTION_LIMIT && (
+                  <p className="text-xs text-gray-400 text-center pt-1">
+                    외 {actionItems.length - ACTION_LIMIT}건 — 지적사항·자료요구 화면에서 전체 확인
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           {/* 감사 진행 현황 */}
@@ -344,7 +489,15 @@ export default function DashboardPage() {
                         <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                           <td className="py-2 pr-4 text-gray-800">{r.member ?? '—'}</td>
                           <td className="py-2 pr-4 text-gray-600">{deptLabel || '—'}</td>
-                          <td className="py-2 pr-4 text-gray-800 max-w-xs truncate">{r.title}</td>
+                          <td className="py-2 pr-4 max-w-xs truncate">
+                            <Link
+                              href={`/docs?focus=${r.id}`}
+                              className="text-[#1F4E79] hover:underline"
+                              title={r.title}
+                            >
+                              {r.title}
+                            </Link>
+                          </td>
                           <td
                             className="py-2 pr-4 font-medium"
                             style={{ color: isOverdue ? '#C62828' : '#374151' }}

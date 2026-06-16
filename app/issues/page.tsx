@@ -10,6 +10,14 @@ import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { downloadAsDoc, escapeHtml } from '@/lib/exportDoc';
 import { ISSUE_TYPES, ISSUE_PROCS, CORR_STATUSES } from '@/lib/types';
 import type { Issue, Department, MaterialRequest, Member } from '@/lib/types';
+import { useFocusRow } from '@/lib/useFocusRow';
+import { useRealtimeSync } from '@/lib/useRealtimeSync';
+import { matchLaws, lawHref, type LawMatch } from '@/lib/lawMatch';
+
+// 지적사항 텍스트(유형·내용·조치요구)에서 추천 근거법령 조문을 도출
+function lawsForIssue(r: Pick<Issue, 'type' | 'content' | 'action'>): LawMatch[] {
+  return matchLaws(`${r.type} ${r.content} ${r.action ?? ''}`);
+}
 
 const IMPORT_FIELDS: ImportField[] = [
   { key: 'date', aliases: ['일자', 'date'], type: 'date' },
@@ -105,6 +113,8 @@ export default function IssuesPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+  // AI 데모 등에서 ?focus=<id> 로 진입 시 해당 행으로 스크롤·강조
+  const focusId = useFocusRow(!loading);
 
   const fetchIssues = useCallback(async () => {
     const { data, error } = await supabase
@@ -119,6 +129,13 @@ export default function IssuesPage() {
       setIssues((data as Issue[]) ?? []);
     }
   }, [committee]);
+
+  // 같은 위원회의 다른 사용자가 지적사항을 변경하면 실시간 반영
+  const { live } = useRealtimeSync({
+    table: 'issues',
+    committee,
+    onChange: fetchIssues,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -476,7 +493,13 @@ export default function IssuesPage() {
 
   function renderRow(r: Issue) {
     return (
-      <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50 align-top">
+      <tr
+        key={r.id}
+        id={`row-${r.id}`}
+        className={`border-b border-gray-100 align-top transition-colors ${
+          focusId === r.id ? 'bg-amber-100' : 'hover:bg-gray-50'
+        }`}
+      >
         <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.date ?? '—'}</td>
         <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
         <td className="py-2 px-3 text-gray-700 whitespace-nowrap">{r.member ?? '—'}</td>
@@ -488,7 +511,29 @@ export default function IssuesPage() {
             {r.type}
           </span>
         </td>
-        <td className="py-2 px-3 text-gray-800 max-w-xs">{r.content}</td>
+        <td className="py-2 px-3 text-gray-800 max-w-xs">
+          <p>{r.content}</p>
+          {(() => {
+            const laws = lawsForIssue(r);
+            if (laws.length === 0) return null;
+            return (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {laws.map((m) => (
+                  <a
+                    key={`${m.lawId}-${m.anchor}`}
+                    href={lawHref(m)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`${m.lawName} ${m.heading} — ${m.reason}`}
+                    className="inline-block text-[11px] rounded bg-[#2E7D32]/10 text-[#2E7D32] px-1.5 py-0.5 hover:bg-[#2E7D32] hover:text-white transition-colors"
+                  >
+                    ⚖ {m.anchor}
+                  </a>
+                ))}
+              </div>
+            );
+          })()}
+        </td>
         <td className="py-2 px-3 text-gray-600 max-w-xs">{r.action ?? '—'}</td>
         <td className="py-2 px-3 text-gray-600 max-w-[12rem]">
           {r.request_id && requestMap.has(r.request_id) ? (
@@ -617,12 +662,25 @@ export default function IssuesPage() {
     );
   }
 
+  const formLaws = matchLaws(`${form.type} ${form.content} ${form.action}`);
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-xl font-bold text-[#1F4E79]">
-          지적사항{committee ? ` — ${committee}` : ''}
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-[#1F4E79]">
+            지적사항{committee ? ` — ${committee}` : ''}
+          </h1>
+          {live && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[#2E7D32]/10 px-2 py-0.5 text-[11px] font-medium text-[#2E7D32]"
+              title="같은 위원회의 다른 사용자가 변경하면 자동으로 반영됩니다."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#2E7D32] animate-pulse" />
+              실시간
+            </span>
+          )}
+        </div>
         <div className="flex gap-2 flex-wrap">
           <input
             ref={fileInputRef}
@@ -797,6 +855,31 @@ export default function IssuesPage() {
             조치요구
             <textarea value={form.action} onChange={setField('action')} className={inputCls} rows={2} />
           </label>
+          {formLaws.length > 0 && (
+            <div className="sm:col-span-2 rounded-lg border border-[#2E7D32]/30 bg-[#2E7D32]/5 p-3">
+              <p className="text-sm font-medium text-[#2E7D32] mb-2">
+                추천 근거법령 ⚖
+                <span className="ml-1 text-xs font-normal text-gray-500">
+                  지적내용·유형에 따라 자동 추천됩니다. 클릭하면 조문 원문으로 이동합니다.
+                </span>
+              </p>
+              <ul className="space-y-1.5">
+                {formLaws.map((m) => (
+                  <li key={`${m.lawId}-${m.anchor}`} className="text-sm">
+                    <a
+                      href={lawHref(m)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[#1F4E79] hover:underline"
+                    >
+                      {m.lawName} {m.heading}
+                    </a>
+                    <span className="text-gray-500"> — {m.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="sm:col-span-2 flex justify-end">
             <button
               type="submit"

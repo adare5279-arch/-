@@ -9,6 +9,8 @@ import { REQUEST_STATUSES } from '@/lib/types';
 import { exportSheet, exportTemplate } from '@/lib/exportXlsx';
 import { importExcel, type ImportField } from '@/lib/importXlsx';
 import type { MaterialRequest, Member, Department } from '@/lib/types';
+import { useFocusRow } from '@/lib/useFocusRow';
+import { useRealtimeSync } from '@/lib/useRealtimeSync';
 
 const IMPORT_FIELDS: ImportField[] = [
   { key: 'member', aliases: ['의원', 'member'] },
@@ -86,6 +88,8 @@ export default function DocsPage() {
   const [memberFilter, setMemberFilter] = useState('전체');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // AI 데모 등에서 ?focus=<id> 로 진입 시 해당 행으로 스크롤·강조
+  const focusId = useFocusRow(!loading);
 
   const fetchRequests = useCallback(async () => {
     const { data, error } = await supabase
@@ -100,6 +104,13 @@ export default function DocsPage() {
       setRequests((data as MaterialRequest[]) ?? []);
     }
   }, [committee]);
+
+  // 같은 위원회의 다른 사용자가 자료요구를 변경하면 실시간 반영
+  const { live } = useRealtimeSync({
+    table: 'material_requests',
+    committee,
+    onChange: fetchRequests,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -279,9 +290,20 @@ export default function DocsPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-xl font-bold text-[#1F4E79]">
-          자료요구{committee ? ` — ${committee}` : ''}
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-[#1F4E79]">
+            자료요구{committee ? ` — ${committee}` : ''}
+          </h1>
+          {live && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[#2E7D32]/10 px-2 py-0.5 text-[11px] font-medium text-[#2E7D32]"
+              title="같은 위원회의 다른 사용자가 변경하면 자동으로 반영됩니다."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#2E7D32] animate-pulse" />
+              실시간
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
           <input
             ref={fileInputRef}
@@ -507,7 +529,13 @@ export default function DocsPage() {
               </thead>
               <tbody>
                 {filtered.map(r => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr
+                    key={r.id}
+                    id={`row-${r.id}`}
+                    className={`border-b border-gray-100 transition-colors ${
+                      focusId === r.id ? 'bg-amber-100' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.member ?? '—'}</td>
                     <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.dept ?? '—'}</td>
                     <td className="py-2 px-3 text-gray-800">{r.title}</td>

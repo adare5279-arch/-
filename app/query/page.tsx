@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useCommittee } from '@/lib/CommitteeContext';
-import type { Member, Meeting, Department, Issue } from '@/lib/types';
+import { exportSheet } from '@/lib/exportXlsx';
+import type { Member, Meeting, Department, Issue, BudgetItem } from '@/lib/types';
 import {
   buildRuleQuery,
   buildLLMPrompt,
@@ -17,6 +19,82 @@ import {
 } from '@/lib/queryBuilder';
 
 type FormState = Omit<QueryParams, 'comm'> & { engine: EngineKey };
+
+type Mode = 'free' | 'budget';
+
+const won = (n: number) => n.toLocaleString('ko-KR');
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+type Finding = {
+  item: BudgetItem;
+  tag: '저조집행' | '초과집행' | '불용과다' | '이월과다';
+  rate: number;
+  unused: number;
+  question: string;
+};
+
+function buildFindings(items: BudgetItem[]): Finding[] {
+  const out: Finding[] = [];
+  for (const r of items) {
+    if (r.budget <= 0) continue;
+    const rate = r.executed / r.budget;
+    const unused = Math.max(0, r.budget - r.executed - r.carryover);
+    const head = `[${r.dept ?? '부서미상'}] '${r.program}' 사업(${r.year}년, 예산현액 ${won(
+      r.budget
+    )}천원)`;
+    if (r.executed > r.budget) {
+      out.push({
+        item: r,
+        tag: '초과집행',
+        rate,
+        unused,
+        question: `${head}은 집행액이 ${won(r.executed)}천원으로 예산현액을 ${won(
+          r.executed - r.budget
+        )}천원 초과하였습니다. 초과 집행의 근거와 예산 전용·추경 등 적법한 절차를 거쳤는지 소명하여 주시기 바랍니다.`,
+      });
+    } else if (rate < 0.7) {
+      out.push({
+        item: r,
+        tag: '저조집행',
+        rate,
+        unused,
+        question: `${head}의 집행률이 ${pct(
+          rate
+        )}에 그쳤습니다. 집행이 부진한 사유와 사업 추진상의 애로사항, 향후 집행 계획을 구체적으로 답변하여 주시기 바랍니다.`,
+      });
+    }
+    if (unused / r.budget >= 0.2) {
+      out.push({
+        item: r,
+        tag: '불용과다',
+        rate,
+        unused,
+        question: `${head}에서 불용액이 ${won(unused)}천원(예산의 ${pct(
+          unused / r.budget
+        )})에 달합니다. 예산 편성의 적정성과 불용 발생 원인, 재발 방지 대책을 밝혀 주시기 바랍니다.`,
+      });
+    }
+    if (r.carryover / r.budget >= 0.2) {
+      out.push({
+        item: r,
+        tag: '이월과다',
+        rate,
+        unused,
+        question: `${head}의 이월액이 ${won(r.carryover)}천원(예산의 ${pct(
+          r.carryover / r.budget
+        )})으로 과다합니다. 이월 사유와 차년도 집행 가능성, 사업 지연에 따른 영향을 설명하여 주시기 바랍니다.`,
+      });
+    }
+  }
+  return out;
+}
+
+const TAG_COLOR: Record<Finding['tag'], string> = {
+  저조집행: '#C62828',
+  초과집행: '#6A1B9A',
+  불용과다: '#B45309',
+  이월과다: '#1565C0',
+};
 
 const DEFAULT_FORM: FormState = {
   dept: '',
@@ -40,6 +118,8 @@ const DEFAULT_FORM: FormState = {
 export default function QueryPage() {
   const { committee } = useCommittee();
 
+  const [mode, setMode] = useState<Mode>('free');
+
   const [members, setMembers] = useState<Member[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -50,6 +130,13 @@ export default function QueryPage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
+
+  // 예산·결산 질의서 모드 상태
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
+  const [budgetLoading, setBudgetLoading] = useState(true);
+  const [yearFilter, setYearFilter] = useState<string>('전체');
+  const [selectedFindings, setSelectedFindings] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
 
   // Fetch data when committee changes
   useEffect(() => {
@@ -75,6 +162,104 @@ export default function QueryPage() {
 
     fetchAll();
   }, [committee]);
+
+  // 예산·결산 데이터 로드
+  useEffect(() => {
+    if (!committee) return;
+    let cancelled = false;
+    async function load() {
+      setBudgetLoading(true);
+      const { data, error } = await supabase
+        .from('budget_items')
+        .select('*')
+        .eq('committee', committee)
+        .order('year', { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error('Error fetching budget_items:', error);
+        setBudgetItems([]);
+      } else {
+        setBudgetItems((data as BudgetItem[]) ?? []);
+      }
+      setBudgetLoading(false);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [committee]);
+
+  const budgetYears = useMemo(
+    () => Array.from(new Set(budgetItems.map((r) => r.year))).sort((a, b) => b - a),
+    [budgetItems]
+  );
+
+  const scopedBudget = useMemo(
+    () =>
+      yearFilter === '전체'
+        ? budgetItems
+        : budgetItems.filter((r) => String(r.year) === yearFilter),
+    [budgetItems, yearFilter]
+  );
+
+  const findings = useMemo(() => buildFindings(scopedBudget), [scopedBudget]);
+
+  // 데이터/필터 변경 시 전체 선택
+  useEffect(() => {
+    setSelectedFindings(new Set(findings.map((_, i) => i)));
+  }, [findings]);
+
+  const chosenFindings = findings.filter((_, i) => selectedFindings.has(i));
+
+  const budgetDocText = useMemo(() => {
+    const header = `${committee} 행정사무감사 예산·결산 질의서\n${
+      yearFilter === '전체' ? '' : `(${yearFilter}년 회계)\n`
+    }\n`;
+    const body = chosenFindings.map((f, i) => `${i + 1}. ${f.question}`).join('\n\n');
+    return chosenFindings.length > 0 ? header + body : '';
+  }, [chosenFindings, committee, yearFilter]);
+
+  function toggleFinding(i: number) {
+    setSelectedFindings((s) => {
+      const next = new Set(s);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+
+  async function handleBudgetCopy() {
+    if (!budgetDocText) return;
+    try {
+      await navigator.clipboard.writeText(budgetDocText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      alert('복사에 실패했습니다. 직접 선택해 복사해 주세요.');
+    }
+  }
+
+  function handleBudgetDownloadTxt() {
+    if (!budgetDocText) return;
+    const blob = new Blob([budgetDocText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `예산결산_질의서_${committee}_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleBudgetExport() {
+    exportSheet(`예산결산_질의서_${committee}`, '질의서', chosenFindings, [
+      { header: '연번', value: (f) => chosenFindings.indexOf(f) + 1 },
+      { header: '소관부서', value: (f) => f.item.dept ?? '' },
+      { header: '사업명', value: (f) => f.item.program },
+      { header: '유형', value: (f) => f.tag },
+      { header: '집행률(%)', value: (f) => (f.rate * 100).toFixed(1) },
+      { header: '질의 내용', value: (f) => f.question },
+    ]);
+  }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -169,6 +354,29 @@ export default function QueryPage() {
         )}
       </div>
 
+      {/* 모드 탭 */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {([
+          { key: 'free' as Mode, label: '자유 질의서 (AI)' },
+          { key: 'budget' as Mode, label: '예산·결산 질의서 (자동)' },
+        ]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setMode(t.key)}
+            className={[
+              'px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors',
+              mode === t.key
+                ? 'border-[#1F4E79] text-[#1F4E79]'
+                : 'border-transparent text-gray-500 hover:text-gray-700',
+            ].join(' ')}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'free' && (
+      <>
       {/* Form card */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-4">
         {/* Row 1: comm + dept */}
@@ -502,6 +710,144 @@ export default function QueryPage() {
             </pre>
           )}
         </div>
+      )}
+      </>
+      )}
+
+      {mode === 'budget' && (
+      <>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-xs text-gray-500">
+            저조집행·초과집행·불용/이월 과다 사업을 자동으로 찾아 질의 문안을 만듭니다. 데이터는{' '}
+            <Link href="/settlement" className="text-[#1F4E79] underline">
+              결산자료
+            </Link>
+            의 집행 입력을 기반으로 합니다.
+          </p>
+          <select
+            value={yearFilter}
+            onChange={(e) => setYearFilter(e.target.value)}
+            className="rounded border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="전체">전체 연도</option>
+            {budgetYears.map((y) => (
+              <option key={y} value={String(y)}>
+                {y}년
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {budgetLoading ? (
+          <p className="text-sm text-gray-500 py-8 text-center">불러오는 중...</p>
+        ) : findings.length === 0 ? (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+            <p className="text-sm text-[#2E7D32]">✓ 질의가 필요한 예산 이상 항목이 없습니다.</p>
+            <p className="text-xs text-gray-500 mt-2">
+              <Link href="/settlement" className="text-[#1F4E79] underline">
+                결산자료
+              </Link>
+              에서 집행액을 입력하면 자동으로 질의 항목을 찾아냅니다.
+            </p>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-2 gap-4">
+            {/* 좌: 발견 항목 선택 */}
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-[#1F4E79]">
+                  질의 후보 {findings.length}건 · 선택 {chosenFindings.length}건
+                </h2>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={() => setSelectedFindings(new Set(findings.map((_, i) => i)))}
+                    className="text-[#1F4E79] hover:underline"
+                  >
+                    전체선택
+                  </button>
+                  <button
+                    onClick={() => setSelectedFindings(new Set())}
+                    className="text-gray-500 hover:underline"
+                  >
+                    전체해제
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {findings.map((f, i) => (
+                  <li
+                    key={`${f.item.id}-${f.tag}`}
+                    className="flex items-start gap-2 border border-gray-100 rounded p-2 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFindings.has(i)}
+                      onChange={() => toggleFinding(i)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="text-[10px] font-semibold rounded px-1.5 py-0.5 text-white"
+                          style={{ backgroundColor: TAG_COLOR[f.tag] }}
+                        >
+                          {f.tag}
+                        </span>
+                        <span className="text-xs text-gray-500">{f.item.dept ?? '—'}</span>
+                        <span className="text-sm text-gray-800 font-medium">{f.item.program}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        집행률 {pct(f.rate)} · 불용 {won(f.unused)}천원
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 우: 생성된 질의서 */}
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-[#1F4E79]">생성된 질의서</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleBudgetCopy}
+                    disabled={!budgetDocText}
+                    className="rounded border border-[#1F4E79] px-3 py-1.5 text-xs font-medium text-[#1F4E79] hover:bg-[#1F4E79] hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    {copied ? '복사됨 ✓' : '복사'}
+                  </button>
+                  <button
+                    onClick={handleBudgetDownloadTxt}
+                    disabled={!budgetDocText}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    TXT
+                  </button>
+                  <button
+                    onClick={handleBudgetExport}
+                    disabled={chosenFindings.length === 0}
+                    className="rounded border border-[#2E7D32] px-3 py-1.5 text-xs font-medium text-[#2E7D32] hover:bg-[#2E7D32] hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    엑셀
+                  </button>
+                </div>
+              </div>
+              {budgetDocText ? (
+                <textarea
+                  readOnly
+                  value={budgetDocText}
+                  className="flex-1 min-h-[55vh] w-full rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 leading-relaxed focus:outline-none"
+                />
+              ) : (
+                <p className="text-sm text-gray-400 py-8 text-center flex-1">
+                  왼쪽에서 질의할 항목을 선택하세요.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </>
       )}
     </div>
   );

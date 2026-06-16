@@ -37,10 +37,25 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    title: '예산 · 결산',
+    items: [
+      { label: '예산 자료', href: '/budget' },
+      { label: '결산자료', href: '/settlement' },
+      { label: '분석자료', href: '/analysis' },
+      { label: '재정지표', href: '/fiscal' },
+    ],
+  },
+  {
+    title: 'AI 도우미',
+    items: [
+      { label: '한 줄 질문(AI)', href: '/demo' },
+      { label: 'AI 질의서', href: '/query' },
+    ],
+  },
+  {
     title: '도구',
     items: [
       { label: '통합 검색', href: '/search' },
-      { label: 'AI 질의서', href: '/query' },
       { label: '변경 이력·백업', href: '/history' },
     ],
   },

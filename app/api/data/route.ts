@@ -19,6 +19,9 @@ const ALLOWED_TABLES = new Set<string>([
   'departments',
   'report_sections',
   'members',
+  'demo_qa',
+  'budget_items',
+  'fiscal_indicators',
 ]);
 
 type Action = 'insert' | 'update' | 'delete' | 'upsert';

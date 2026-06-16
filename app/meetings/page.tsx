@@ -52,6 +52,13 @@ export default function MeetingsPage() {
         }
       }
       setLoading(false);
+
+      // AI 데모 인용 등에서 ?focus=<meeting_id> 로 진입 시 해당 회의 발언 요약 자동 열기
+      const focus = Number(new URLSearchParams(window.location.search).get('focus'));
+      if (focus) {
+        const target = ((data as Meeting[]) ?? []).find((m) => m.id === focus);
+        if (target) setActive(target);
+      }
     }
 
     fetchMeetings();

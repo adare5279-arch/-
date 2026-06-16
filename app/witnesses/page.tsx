@@ -9,6 +9,7 @@ import { importExcel, type ImportField } from '@/lib/importXlsx';
 import { extractText, UPLOAD_ACCEPT } from '@/lib/extractText';
 import { WITNESS_KINDS, WITNESS_ATTENDS } from '@/lib/types';
 import type { Witness } from '@/lib/types';
+import { useFocusRow } from '@/lib/useFocusRow';
 
 const IMPORT_FIELDS: ImportField[] = [
   { key: 'kind', aliases: ['구분', 'kind'], allowed: WITNESS_KINDS, fallback: '증인' },
@@ -75,6 +76,8 @@ export default function WitnessesPage() {
   const [fileMsg, setFileMsg] = useState('');
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // AI 데모 등에서 ?focus=<id> 로 진입 시 해당 행으로 스크롤·강조
+  const focusId = useFocusRow(!loading);
 
   const fetchWitnesses = useCallback(async () => {
     const { data, error } = await supabase
@@ -406,7 +409,13 @@ export default function WitnessesPage() {
               </thead>
               <tbody>
                 {witnesses.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr
+                    key={r.id}
+                    id={`row-${r.id}`}
+                    className={`border-b border-gray-100 transition-colors ${
+                      focusId === r.id ? 'bg-amber-100' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="py-2 px-3 text-gray-800 whitespace-nowrap">{r.kind}</td>
                     <td className="py-2 px-3 text-gray-800 whitespace-nowrap font-medium">{r.name}</td>
                     <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{r.org ?? '—'}</td>

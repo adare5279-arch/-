@@ -1,9 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LAWS, type LawDoc, type LawArticle } from '@/lib/laws';
 
 const UPDATED = '2026-06-08';
+
+// 조 번호(예: "제50조")만 추출 — 딥링크 앵커용
+function joKey(heading: string) {
+  return heading.split('(')[0];
+}
 
 // 개정·신설 등 연혁 표기를 본문과 시각적으로 구분
 function renderLine(text: string, key: number) {
@@ -25,9 +30,14 @@ function renderLine(text: string, key: number) {
   );
 }
 
-function ArticleBlock({ a }: { a: LawArticle }) {
+function ArticleBlock({ a, highlight }: { a: LawArticle; highlight: boolean }) {
   return (
-    <div className="border-b border-gray-100 py-4 last:border-b-0">
+    <div
+      id={`jo-${joKey(a.heading)}`}
+      className={`scroll-mt-24 border-b border-gray-100 py-4 last:border-b-0 transition-colors ${
+        highlight ? 'bg-amber-100 rounded-lg -mx-3 px-3' : ''
+      }`}
+    >
       <h3 className="text-[15px] font-bold text-[#1F4E79] mb-2">{a.heading}</h3>
       <div className="space-y-1.5 pl-1">
         {a.lines.map((ln, i) => renderLine(ln, i))}
@@ -41,6 +51,33 @@ export default function LawsPage() {
   const [q, setQ] = useState('');
   const [showAddenda, setShowAddenda] = useState(false);
   const [showForms, setShowForms] = useState(false);
+  const [highlightJo, setHighlightJo] = useState<string>('');
+  const pendingJo = useRef<string>('');
+
+  // 지적사항 등에서 ?law=&jo= 로 진입 시 해당 법령·조문으로 이동·강조
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const law = params.get('law');
+    const jo = params.get('jo');
+    if (law && LAWS.some((l) => l.id === law)) {
+      setActiveId(law);
+      setQ('');
+    }
+    if (jo) pendingJo.current = jo;
+  }, []);
+
+  // 대상 법령이 렌더된 뒤 조문으로 스크롤·강조
+  useEffect(() => {
+    const jo = pendingJo.current;
+    if (!jo) return;
+    const el = document.getElementById(`jo-${jo}`);
+    if (!el) return;
+    pendingJo.current = '';
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightJo(jo);
+    const t = setTimeout(() => setHighlightJo(''), 2600);
+    return () => clearTimeout(t);
+  }, [activeId]);
 
   const law: LawDoc | undefined = useMemo(
     () => LAWS.find((l) => l.id === activeId) ?? LAWS[0],
@@ -146,7 +183,9 @@ export default function LawsPage() {
         {articles.length === 0 ? (
           <p className="text-sm text-gray-500 py-6 text-center">검색 결과가 없습니다.</p>
         ) : (
-          articles.map((a) => <ArticleBlock key={a.heading} a={a} />)
+          articles.map((a) => (
+            <ArticleBlock key={a.heading} a={a} highlight={highlightJo === joKey(a.heading)} />
+          ))
         )}
       </div>
 

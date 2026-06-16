@@ -141,6 +141,49 @@ export type ActivityLog = {
   created_at: string;
 };
 
+export type BudgetItem = {
+  id: number;
+  committee: string | null;
+  year: number;
+  field: string | null;     // 분야 (예: 의정활동, 홍보 등)
+  dept: string | null;      // 소관부서
+  program: string;          // 사업명
+  budget: number;           // 예산현액 (천원)
+  executed: number;         // 집행액 (천원)
+  carryover: number;        // 이월액 (천원)
+  note: string | null;
+  created_at: string;
+};
+
+// 재정건전성 지표 (지방재정365 공시 기반)
+export type FiscalIndicator = {
+  id: number;
+  org_name: string;
+  year: number;
+  fin_independence: number | null;          // 재정자립도 %
+  fin_autonomy: number | null;              // 재정자주도 %
+  integrated_balance_ratio: number | null;  // 통합재정수지비율 %
+  debt_ratio: number | null;                // 관리채무비율 %
+  avg_independence: number | null;          // 전국 시도 평균
+  avg_autonomy: number | null;
+  avg_integrated_balance_ratio: number | null;
+  avg_debt_ratio: number | null;
+  own_revenue: number | null;               // 자체수입 (백만원)
+  budget_total: number | null;              // 일반회계 예산규모 (백만원)
+  note: string | null;
+  source_url: string | null;
+  created_at: string;
+};
+
+// 예산 분야 분류 (지방재정 세출예산 성질별 구분)
+export const BUDGET_FIELDS = [
+  "행정운영경비",
+  "정책사업",
+  "재무활동",
+  "예비비",
+  "기타",
+] as const;
+
 export const ISSUE_TYPES = ["위법", "부당", "개선", "권고", "주의"] as const;
 export const ISSUE_PROCS = ["미처리", "처리중", "처리완료"] as const;
 // 시정요구 사후관리 이행 상태
