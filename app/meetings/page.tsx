@@ -9,7 +9,7 @@ import AudioMinutes from '@/components/AudioMinutes';
 import DocMinutes from '@/components/DocMinutes';
 import type { Meeting } from '@/lib/types';
 
-type YearFilter = '전체' | 2023 | 2024 | 2025;
+type YearFilter = '전체' | number;
 
 export default function MeetingsPage() {
   const { committee } = useCommittee();
@@ -64,7 +64,14 @@ export default function MeetingsPage() {
     fetchMeetings();
   }, [committee]);
 
-  const yearButtons: YearFilter[] = ['전체', 2023, 2024, 2025];
+  // 데이터에 존재하는 연도를 내림차순으로 동적 생성한다.
+  // (하드코딩 제거 → 2026년 이후 회의록도 자동으로 필터 버튼에 나타남)
+  const yearButtons: YearFilter[] = [
+    '전체',
+    ...Array.from(new Set(meetings.map((m) => m.year)))
+      .filter((y): y is number => typeof y === 'number' && !Number.isNaN(y))
+      .sort((a, b) => b - a),
+  ];
 
   const filtered =
     yearFilter === '전체'

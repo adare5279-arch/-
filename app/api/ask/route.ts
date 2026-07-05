@@ -1,27 +1,10 @@
 // 최소 풀스택 데모용 백엔드 라우트
 // 흐름: 프론트(질문) → 백엔드(검증·rate limit·DB 관련자료 검색) → Claude(AI) → 결과+근거 반환
 import { supabaseServer } from '@/lib/supabaseServer';
+import { rateLimited, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-// ── 아주 단순한 메모리 기반 rate limit (인스턴스 단위) ─────────────────
-const WINDOW_MS = 60_000; // 1분
-const MAX_HITS = 10; // 1분당 10회
-const hits = new Map<string, number[]>();
-
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const arr = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  arr.push(now);
-  hits.set(ip, arr);
-  if (hits.size > 500) {
-    for (const [k, v] of hits) {
-      if (v.every((t) => now - t >= WINDOW_MS)) hits.delete(k);
-    }
-  }
-  return arr.length > MAX_HITS;
-}
 
 // ── 질문에서 검색 키워드 추출 ─────────────────────────────────────────
 const STOP = new Set([
@@ -204,11 +187,8 @@ async function retrieve(
 export async function POST(request: Request): Promise<Response> {
   try {
     // 0) rate limit
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      'unknown';
-    if (rateLimited(ip)) {
+    const ip = clientIp(request);
+    if (rateLimited(`ask:${ip}`)) {
       return Response.json(
         { error: '요청이 너무 잦습니다. 잠시 후 다시 시도하세요. (1분당 10회)' },
         { status: 429 },

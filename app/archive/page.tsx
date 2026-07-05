@@ -54,7 +54,7 @@ export default function ArchivePage() {
       URL.revokeObjectURL(url);
 
       setResult(
-        `완료! 총 ${res.itemCount}개 항목, 파일 ${res.fileCount}개를 ZIP으로 정리했습니다.` +
+        `완료! 총 ${res.itemCount}개 항목을 ${res.folderCount}개 폴더로 정리했습니다 (담긴 파일 ${res.fileCount}개).` +
           (res.failures ? ` (첨부 ${res.failures}개는 내려받지 못함)` : ''),
       );
     } catch (e) {
@@ -76,8 +76,9 @@ export default function ArchivePage() {
           자료 정리 (자동 폴더 ZIP){committee ? ` — ${committee}` : ''}
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          선택한 위원회에 등록된 자료를 <strong>[부서 &gt; 분류]</strong> 폴더 구조로 묶어
-          압축파일(ZIP)로 내려받습니다. 첨부파일과 목록(CSV)이 함께 담깁니다.
+          선택한 위원회에 등록된 자료를 <strong>[소관 실국 &gt; 분류]</strong> 폴더 구조로 묶어
+          압축파일(ZIP)로 내려받습니다. 부서는 <strong>위원회 소관 실국</strong>에 맞춰 자동
+          분류되며, 첨부파일과 목록(CSV)이 함께 담깁니다.
         </p>
       </div>
 
@@ -125,12 +126,15 @@ export default function ArchivePage() {
         <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 leading-relaxed">
           <p className="font-semibold text-gray-700 mb-1">생성되는 폴더 예시</p>
           <pre className="whitespace-pre-wrap font-mono text-[11px] text-gray-600">{`행감자료_${committee}/
-├─ 건설교통국/
-│   ├─ 자료요구/   (첨부파일들)
-│   └─ 지적사항/
-├─ 부서미지정(공통)/
+├─ 의회사무처/             ← 위원회 소관 실국별
+│   ├─ 자료요구/   (첨부 + 목록.csv)
+│   └─ 지적사항/   (목록.csv)
+├─ 공통(부서무관)/         ← 증인·회의록 등
 │   ├─ 증인·참고인/
 │   └─ 회의록/      (원본 + AI정리.txt)
+├─ 기타(소관 외 부서)/     ← 소관 밖 부서 자료
+│   └─ 자료요구/
+├─ (자료 없는 소관 실국)/  (목록.csv만 생성)
 └─ 자료목록.csv`}</pre>
         </div>
 

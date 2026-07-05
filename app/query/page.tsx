@@ -127,7 +127,13 @@ export default function QueryPage() {
   const [selectedIssueIds, setSelectedIssueIds] = useState<number[]>([]);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  // 부서 '직접 입력' 모드 여부. form.dept 에는 실제 부서명만 담기도록 분리해
+  // '__custom__' 센티넬이 질의서 본문(params.dept)으로 새어 나가지 않게 한다.
+  const [customDept, setCustomDept] = useState(false);
   const [result, setResult] = useState('');
+  // AI 생성 오류는 결과 본문(result)과 분리해 별도 영역에 표시한다.
+  // (기존엔 '오류: ...' 문구를 result 에 넣어 생성된 질의서처럼 보였음)
+  const [genError, setGenError] = useState('');
   const [loading, setLoading] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
 
@@ -143,21 +149,25 @@ export default function QueryPage() {
     if (!committee) return;
 
     const fetchAll = async () => {
-      const [{ data: mem }, { data: dep }, { data: mtg }, { data: iss }] = await Promise.all([
-        supabase.from('members').select('*').eq('committee', committee),
-        supabase.from('departments').select('*').eq('committee', committee),
-        supabase.from('meetings').select('*').eq('committee', committee),
-        supabase
-          .from('issues')
-          .select('*')
-          .eq('committee', committee)
-          .order('date', { ascending: false }),
-      ]);
-      setMembers((mem as Member[]) ?? []);
-      setDepartments((dep as Department[]) ?? []);
-      setMeetings((mtg as Meeting[]) ?? []);
-      setIssues((iss as Issue[]) ?? []);
-      setSelectedIssueIds([]);
+      try {
+        const [{ data: mem }, { data: dep }, { data: mtg }, { data: iss }] = await Promise.all([
+          supabase.from('members').select('*').eq('committee', committee),
+          supabase.from('departments').select('*').eq('committee', committee),
+          supabase.from('meetings').select('*').eq('committee', committee),
+          supabase
+            .from('issues')
+            .select('*')
+            .eq('committee', committee)
+            .order('date', { ascending: false }),
+        ]);
+        setMembers((mem as Member[]) ?? []);
+        setDepartments((dep as Department[]) ?? []);
+        setMeetings((mtg as Meeting[]) ?? []);
+        setIssues((iss as Issue[]) ?? []);
+        setSelectedIssueIds([]);
+      } catch (e) {
+        console.error('query fetchAll error:', e);
+      }
     };
 
     fetchAll();
@@ -269,8 +279,8 @@ export default function QueryPage() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
 
-  // 선택한 부서가 있으면 해당 부서 지적사항을 우선 노출
-  const relevantIssues = form.dept && form.dept !== '__custom__'
+  // 선택한 부서가 있으면 해당 부서 지적사항을 우선 노출 (form.dept 는 항상 실제 부서명)
+  const relevantIssues = form.dept
     ? issues.filter((it) => it.dept === form.dept)
     : issues;
 
@@ -302,6 +312,8 @@ export default function QueryPage() {
       return;
     }
 
+    setGenError('');
+
     if (form.engine === 'rule') {
       setResult(buildRuleQuery(params, meetings));
       return;
@@ -312,6 +324,13 @@ export default function QueryPage() {
     setLoading(true);
     setResult('');
     try {
+      // AI 설정(브라우저 저장)에 등록한 개인 키·모델을 선택한 엔진에 맞춰 사용
+      const { loadSettings, DEFAULT_MODELS } = await import('@/lib/aiSettings');
+      const s = loadSettings();
+      const provider = form.engine as 'gemini' | 'claude' | 'openai';
+      const apiKey = s.keys[provider]?.trim() || undefined;
+      const model = s.models[provider]?.trim() || DEFAULT_MODELS[provider];
+
       const res = await fetch('/api/generate-query', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -319,16 +338,21 @@ export default function QueryPage() {
           engine: form.engine,
           prompt,
           system: QUERY_SYSTEM_PROMPT,
+          model,
+          ...(apiKey ? { apiKey } : {}),
         }),
       });
       const data = (await res.json()) as { text?: string; error?: string };
       if (data.error) {
-        setResult(`오류: ${data.error}`);
+        setGenError(data.error);
+      } else if (data.text) {
+        setResult(data.text);
       } else {
-        setResult(data.text ?? '');
+        setGenError('AI가 빈 응답을 반환했습니다. 잠시 후 다시 시도해 주세요.');
       }
     } catch (e) {
-      setResult(`오류: ${String(e)}`);
+      console.error('generate-query error:', e);
+      setGenError('네트워크 오류로 생성에 실패했습니다. 연결을 확인한 뒤 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
@@ -394,8 +418,17 @@ export default function QueryPage() {
             {departments.length > 0 ? (
               <select
                 className={inputCls}
-                value={form.dept}
-                onChange={(e) => set('dept', e.target.value)}
+                value={customDept ? '__custom__' : form.dept}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__custom__') {
+                    setCustomDept(true);
+                    set('dept', '');
+                  } else {
+                    setCustomDept(false);
+                    set('dept', v);
+                  }
+                }}
               >
                 <option value="">-- 부서 선택 --</option>
                 {departments.map((d) => (
@@ -413,10 +446,11 @@ export default function QueryPage() {
                 onChange={(e) => set('dept', e.target.value)}
               />
             )}
-            {form.dept === '__custom__' && (
+            {customDept && (
               <input
                 className={`${inputCls} mt-1`}
                 placeholder="부서명 직접 입력"
+                value={form.dept}
                 onChange={(e) => set('dept', e.target.value)}
               />
             )}
@@ -533,7 +567,7 @@ export default function QueryPage() {
             </label>
             <p className="text-[11px] text-gray-400 mb-1">
               선택한 지적사항은 후속 점검·재발 여부 추궁 항목으로 질의서에 반영됩니다.
-              {form.dept && form.dept !== '__custom__' && ` 현재 「${form.dept}」 부서 기준으로 필터링됩니다.`}
+              {form.dept && ` 현재 「${form.dept}」 부서 기준으로 필터링됩니다.`}
             </p>
             <div className="border border-gray-200 rounded max-h-44 overflow-auto divide-y divide-gray-100">
               {relevantIssues.length === 0 ? (
@@ -667,6 +701,7 @@ export default function QueryPage() {
               onChange={(e) => set('engine', e.target.value as EngineKey)}
             >
               <option value="rule">규칙기반 (무료/즉시)</option>
+              <option value="gemini">제미나이 (Google Gemini · 무료키)</option>
               <option value="claude">Claude</option>
               <option value="openai">GPT (OpenAI)</option>
             </select>
@@ -682,6 +717,11 @@ export default function QueryPage() {
           >
             {loading ? '생성 중...' : '질의서 생성'}
           </button>
+          {genError && (
+            <p className="mt-2 text-sm text-[#C62828] bg-[#C62828]/5 border border-[#C62828]/20 rounded px-3 py-2 leading-relaxed">
+              {genError} 생성 엔진을 「규칙기반(무료/즉시)」으로 바꾸면 API 키 없이 바로 생성할 수 있습니다.
+            </p>
+          )}
         </div>
       </div>
 

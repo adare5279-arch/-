@@ -96,7 +96,7 @@ export default function DocMinutes({ committee }: Props) {
       const data = (await res.json()) as { text?: string; error?: string };
       if (!res.ok || data.error) {
         setSummary('');
-        setPhase(`본문은 추출됐으나 AI 정리에 실패했습니다: ${data.error ?? res.status}`);
+        setPhase(`본문 추출은 완료되었습니다. AI 정리만 실패했어요(${data.error ?? res.status}). 아래 문서 원문을 직접 정리해 저장하거나, 잠시 후 다시 시도해 주세요.`);
       } else {
         setSummary((data.text ?? '').trim());
         setPhase('완료! 내용을 검토·수정한 뒤 저장하거나 다운로드하세요.');

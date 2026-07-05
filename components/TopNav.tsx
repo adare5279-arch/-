@@ -58,6 +58,8 @@ const NAV_SECTIONS = [
     items: [
       { label: '통합 검색', href: '/search' },
       { label: '변경 이력·백업', href: '/history' },
+      { label: 'AI 설정', href: '/settings' },
+      { label: '사용방법 안내', href: '/guide' },
     ],
   },
 ] as const;

@@ -152,7 +152,7 @@ export const Q_LENGTH_DETAIL: Record<LengthKey, LengthDetail> = {
 // ─── QueryParams type ─────────────────────────────────────────────────────────
 
 export type FmtKey = 'oral' | 'written' | 'speech';
-export type EngineKey = 'rule' | 'claude' | 'openai';
+export type EngineKey = 'rule' | 'gemini' | 'claude' | 'openai';
 
 export type QueryParams = {
   comm: string;

@@ -160,7 +160,9 @@ export default function DashboardPage() {
     if (!r.due_date) return false;
     const due = new Date(r.due_date);
     due.setHours(0, 0, 0, 0);
-    return due >= today && due <= threeDaysLater;
+    // 기한이 임박(3일 내)했거나 이미 지난(초과) 미제출 자료를 모두 포함한다.
+    // 기존에는 due >= today 조건 때문에 '이미 마감 지난 미제출' 건이 누락됐다.
+    return due <= threeDaysLater;
   }).length;
 
   const pendingRequests = requests.filter(

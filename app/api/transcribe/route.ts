@@ -1,3 +1,6 @@
+import { assertPublicHttpsUrl } from '@/lib/ssrfGuard';
+import { rateLimited, clientIp } from '@/lib/rateLimit';
+
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 긴 음성 전사를 위해 최대 실행시간 확대 (플랜 한도 내 적용)
 
@@ -5,6 +8,13 @@ const MAX_BYTES = 25 * 1024 * 1024; // OpenAI 음성 전사 요청당 한도 25M
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    if (rateLimited(`transcribe:${clientIp(request)}`, { max: 5 })) {
+      return Response.json(
+        { error: '요청이 너무 잦습니다. 잠시 후 다시 시도하세요. (1분당 5회)' },
+        { status: 429 },
+      );
+    }
+
     const body = (await request.json()) as {
       fileUrl?: string;
       fileName?: string;
@@ -29,9 +39,21 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: '음성 파일 URL이 없습니다.' }, { status: 400 });
     }
 
+    // SSRF 방어: 사용자가 준 URL이 내부망/메타데이터로 향하지 않는지 검증
+    let safeUrl: string;
+    try {
+      safeUrl = await assertPublicHttpsUrl(fileUrl);
+    } catch (e) {
+      return Response.json(
+        { error: `허용되지 않은 파일 URL입니다: ${(e as Error).message}` },
+        { status: 400 },
+      );
+    }
+
     // Supabase Storage 등에 업로드된 파일을 서버에서 직접 내려받음
     // (브라우저 → Vercel 본문 4.5MB 제한을 우회)
-    const audioRes = await fetch(fileUrl);
+    // redirect: 'error' — 리다이렉트로 내부 주소를 우회하는 SSRF 차단
+    const audioRes = await fetch(safeUrl, { redirect: 'error' });
     if (!audioRes.ok) {
       return Response.json(
         { error: `음성 파일을 불러오지 못했습니다. (${audioRes.status})` },

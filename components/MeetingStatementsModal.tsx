@@ -149,12 +149,51 @@ export default function MeetingStatementsModal({
       };
     });
 
-    // 3) 기존 데이터 교체 후 저장
-    await deleteRows('meeting_statements', { meeting_id: meeting.id });
+    // 3) 기존 데이터 교체 후 저장 (데이터 손실 방지)
+    //    게이트웨이가 delete→insert를 한 트랜잭션으로 묶지 못하므로, 삭제 후 삽입이
+    //    실패하면 기존 요약이 통째로 사라질 수 있다. 그래서 ①삭제 실패 시 즉시 중단하고
+    //    ②삽입 실패 시 방금 지운 기존 요약을 복구(롤백)해 손실을 막는다.
+    const prevSaved = saved; // 교체 전 기존 요약 스냅샷
+
+    const { error: delErr } = await deleteRows('meeting_statements', {
+      meeting_id: meeting.id,
+    });
+    if (delErr) {
+      console.error(delErr);
+      setStatusMsg('저장에 실패했습니다(기존 요약은 그대로 유지됨): ' + delErr.message);
+      setSummarizing(false);
+      return;
+    }
+
     const { error } = await insertRows('meeting_statements', rows);
     if (error) {
       console.error(error);
-      setStatusMsg('저장에 실패했습니다: ' + error.message);
+      // 롤백: 방금 삭제한 기존 요약을 다시 넣어 데이터 손실을 막는다 (id·created_at은 재생성)
+      let restored = true;
+      if (prevSaved.length > 0) {
+        const restore = prevSaved.map((s) => ({
+          meeting_id: s.meeting_id,
+          committee: s.committee,
+          speaker: s.speaker,
+          role: s.role,
+          summary: s.summary,
+          turns: s.turns,
+          chars: s.chars,
+          method: s.method,
+        }));
+        const { error: rbErr } = await insertRows('meeting_statements', restore);
+        if (rbErr) {
+          restored = false;
+          console.error('rollback failed:', rbErr);
+        }
+      }
+      setStatusMsg(
+        restored
+          ? '저장에 실패해 변경을 취소했습니다. 기존 요약은 그대로 유지됩니다: ' + error.message
+          : '저장에 실패했고 기존 요약 복구에도 실패했습니다. 새로고침 후 다시 시도하세요: ' +
+              error.message,
+      );
+      await loadSaved();
     } else {
       setStatusMsg(
         aiUsed

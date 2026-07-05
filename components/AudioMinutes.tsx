@@ -158,7 +158,9 @@ export default function AudioMinutes({ committee }: Props) {
       const sumData = (await sumRes.json()) as { text?: string; error?: string };
       if (!sumRes.ok || sumData.error) {
         setSummary('');
-        setPhase(`전사는 완료됐으나 AI 요약에 실패했습니다: ${sumData.error ?? sumRes.status}`);
+        setPhase(
+          `전사는 완료되었습니다. AI 요약만 실패했어요(${sumData.error ?? sumRes.status}). 아래 전사 전문을 직접 정리해 저장하거나, 잠시 후 다시 시도해 주세요. (개별 API 키를 설정하면 AI 요약이 켜집니다)`,
+        );
       } else {
         setSummary((sumData.text ?? '').trim());
         setPhase('완료! 내용을 검토·수정한 뒤 저장하거나 다운로드하세요.');

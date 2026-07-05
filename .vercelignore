@@ -1,0 +1,7 @@
+# Dev-only artifacts — exclude from Vercel deployment uploads
+scripts/
+test-results/
+playwright-report/
+tests/
+e2e/
+*.log
