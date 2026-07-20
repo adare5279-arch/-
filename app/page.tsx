@@ -94,7 +94,7 @@ export default function DashboardPage() {
       const issueRows = (issueRes.data as Issue[]) ?? [];
       const witRows = (witRes.data as Witness[]) ?? [];
 
-      exportWorkbook(`행정사무감사_${committee}`, [
+      await exportWorkbook(`행정사무감사_${committee}`, [
         makeSheet('자료요구', reqRows, [
           { header: '의원', value: r => r.member ?? '' },
           { header: '담당부서', value: r => r.dept ?? '' },

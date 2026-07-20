@@ -75,17 +75,18 @@ export default function ReportPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      // 작성 섹션까지 포함해 전부 병렬 조회 (초기 로딩 단축)
       const [issRes, witRes, reqRes] = await Promise.all([
         supabase.from('issues').select('*').eq('committee', committee).order('date'),
         supabase.from('witnesses').select('*').eq('committee', committee).order('dt'),
         supabase.from('material_requests').select('*').eq('committee', committee),
+        loadSections(),
       ]);
       if (cancelled) return;
       setIssues((issRes.data as Issue[]) ?? []);
       setWitnesses((witRes.data as Witness[]) ?? []);
       setRequests((reqRes.data as MaterialRequest[]) ?? []);
-      await loadSections();
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     }
     load();
     return () => { cancelled = true; };

@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 export type ExportColumn<T> = {
   header: string;
   value: (row: T) => string | number | null | undefined;
@@ -30,8 +28,10 @@ export function makeSheet<T>(
 
 /**
  * Write one or more sheets to a single .xlsx file (date-stamped).
+ * xlsx 라이브러리는 용량이 커서 실제 내보내기 시점에만 로드한다.
  */
-export function exportWorkbook(filename: string, sheets: SheetSpec[]) {
+export async function exportWorkbook(filename: string, sheets: SheetSpec[]) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   for (const s of sheets) {
     const ws = XLSX.utils.aoa_to_sheet(s.aoa);
@@ -52,7 +52,7 @@ export function exportSheet<T>(
   rows: T[],
   columns: ExportColumn<T>[]
 ) {
-  exportWorkbook(filename, [makeSheet(sheetName, rows, columns)]);
+  return exportWorkbook(filename, [makeSheet(sheetName, rows, columns)]);
 }
 
 /**
@@ -63,5 +63,5 @@ export function exportTemplate<T>(
   sheetName: string,
   columns: ExportColumn<T>[]
 ) {
-  exportWorkbook(filename, [makeSheet<T>(sheetName, [], columns)]);
+  return exportWorkbook(filename, [makeSheet<T>(sheetName, [], columns)]);
 }

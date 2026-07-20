@@ -36,7 +36,9 @@ function roleRank(role: string): number {
 
 const PARTY_COLOR: Record<string, string> = {
   민주: '#1565C0',
+  더불어민주당: '#1565C0',
   '국민의힘': '#C62828',
+  조국혁신당: '#0134A0',
 };
 
 function partyColor(party: string | null): string {
@@ -222,11 +224,12 @@ export default function MembersPage() {
     return () => { cancelled = true; };
   }, [committee, fetchMembers]);
 
+  const isMinju = (p: string | null) => p === '민주' || p === '더불어민주당';
   const totalCount = members.length;
-  const minjuCount = members.filter(m => m.party === '민주').length;
+  const minjuCount = members.filter(m => isMinju(m.party)).length;
   const pppCount = members.filter(m => m.party === '국민의힘').length;
   const etcCount = members.filter(
-    m => m.party !== '민주' && m.party !== '국민의힘'
+    m => !isMinju(m.party) && m.party !== '국민의힘'
   ).length;
 
   function handleExport() {
@@ -270,6 +273,9 @@ export default function MembersPage() {
           {committee && (
             <span className="text-base font-medium text-gray-600">— {committee}</span>
           )}
+          <span className="rounded-full bg-[#1F4E79]/10 text-[#1F4E79] px-2.5 py-0.5 text-xs font-semibold">
+            제12대
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">

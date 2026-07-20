@@ -1,11 +1,11 @@
-import * as XLSX from 'xlsx';
-
 /**
  * Read the first sheet of an .xlsx/.csv file and return its rows as objects
  * keyed by the (trimmed) header cells. Cell values are returned raw so that
  * dates can be normalized by the caller via `normalizeDate`.
+ * xlsx 라이브러리는 용량이 커서 파일을 실제로 읽는 시점에만 로드한다.
  */
 export async function parseSheetRows(file: File): Promise<Record<string, unknown>[]> {
+  const XLSX = await import('xlsx');
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
   const first = wb.SheetNames[0];

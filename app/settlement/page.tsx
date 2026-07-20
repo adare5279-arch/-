@@ -55,15 +55,18 @@ export default function SettlementPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const deptRes = await supabase
-        .from('departments')
-        .select('*')
-        .eq('committee', committee)
-        .order('name');
+      // 부서 목록과 예산 사업을 병렬로 조회해 초기 로딩을 단축한다.
+      const [deptRes] = await Promise.all([
+        supabase
+          .from('departments')
+          .select('*')
+          .eq('committee', committee)
+          .order('name'),
+        fetchItems(),
+      ]);
       if (cancelled) return;
       setDepartments((deptRes.data as Department[]) ?? []);
-      await fetchItems();
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     }
     load();
     return () => {

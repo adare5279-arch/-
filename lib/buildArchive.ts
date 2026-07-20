@@ -2,7 +2,6 @@
 // 첨부파일은 Supabase Storage 공개 URL에서 받아오고, 폴더별 목록(CSV)과
 // 회의록 AI 정리본(txt)도 함께 포함한다.
 
-import JSZip from 'jszip';
 import { supabase } from './supabaseClient';
 import type { MaterialRequest, Issue, Witness, MeetingMinutes } from './types';
 
@@ -198,6 +197,7 @@ export async function buildArchive(opts: ArchiveOptions): Promise<ArchiveResult>
   await Promise.all(tasks);
 
   // 2) ZIP 구성
+  const { default: JSZip } = await import('jszip'); // 용량이 커서 ZIP 생성 시점에만 로드
   const zip = new JSZip();
   const root = zip.folder(sanitize(`행감자료_${committee}`)) ?? zip;
 
