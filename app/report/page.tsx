@@ -16,7 +16,7 @@ import {
 } from '@/lib/types';
 import type { Issue, Witness, MaterialRequest } from '@/lib/types';
 
-type SectionKind = 'text' | 'issues' | 'witnesses';
+type SectionKind = 'text' | 'issues' | 'witnesses' | 'archive';
 
 type SectionDef = {
   key: string;
@@ -34,7 +34,21 @@ const SECTIONS: SectionDef[] = [
   { key: 'policy', no: 'Ⅴ', title: '정책제언', kind: 'text', hint: '정책연구과제·제언사항' },
   { key: 'witnesses', no: 'Ⅵ', title: '증인·참고인 채택 및 출석현황', kind: 'witnesses', hint: '증인·참고인 화면 데이터가 표로 자동 삽입됩니다 (보충 설명만 업로드)' },
   { key: 'schedule', no: 'Ⅶ', title: '행정사무감사 일정', kind: 'text', hint: '일자별 감사 일정' },
+  { key: 'past', no: 'Ⅷ', title: '최근 3년 행정사무감사 결과보고서', kind: 'archive', hint: '연도별 원문(경기도의회 회의록시스템) — 연도별로 파일을 교체할 수 있습니다' },
 ];
+
+// Ⅷ장에 연도별로 묶어 보여줄 과거 결과보고서 (report_sections의 past_<연도> 행)
+const PAST_YEARS = ['2025', '2024', '2023'] as const;
+
+function pastSectionDef(year: string): SectionDef {
+  return {
+    key: `past_${year}`,
+    no: '',
+    title: `${year}년도 결과보고서`,
+    kind: 'text',
+    hint: `${year}년도 행정사무감사 결과보고서 원문 파일`,
+  };
+}
 
 type SectionRow = {
   content: string;
@@ -265,6 +279,21 @@ export default function ReportPage() {
           parts.push('</table>');
         }
       }
+
+      if (s.kind === 'archive') {
+        parts.push('<table><tr><th>연도</th><th>결과보고서</th><th>원문 주소</th></tr>');
+        PAST_YEARS.forEach((y) => {
+          const r = getRow(`past_${y}`);
+          const name = r.file_url
+            ? esc(r.file_name ?? `${y}년도 행정사무감사 결과보고서`)
+            : esc(r.content.trim() || '등록된 보고서가 없습니다.');
+          parts.push(
+            `<tr><td>${y}년도</td><td>${name}</td><td>${esc(r.file_url ?? '—')}</td></tr>`,
+          );
+        });
+        parts.push('</table>');
+        parts.push('<p class="muted">출처: 경기도의회 회의록시스템(kms.ggc.go.kr) — 상임위원회 회의록 부록</p>');
+      }
     });
 
     downloadAsDoc(`행정사무감사_결과보고서_${committee}`, parts.join('\n'), `${year}년도 행정사무감사 결과보고서`);
@@ -409,7 +438,7 @@ export default function ReportPage() {
               {s.no}. {s.title}
             </h3>
 
-            {editMode && (
+            {editMode && s.kind !== 'archive' && (
               <SectionEditor
                 committee={committee}
                 section={s}
@@ -419,12 +448,28 @@ export default function ReportPage() {
               />
             )}
 
+            {/* 과거 결과보고서는 연도별로 각각 편집한다 */}
+            {editMode && s.kind === 'archive' && (
+              <div className="space-y-4">
+                {PAST_YEARS.map((y) => (
+                  <SectionEditor
+                    key={y}
+                    committee={committee}
+                    section={pastSectionDef(y)}
+                    row={getRow(`past_${y}`)}
+                    onSaved={loadSections}
+                  />
+                ))}
+              </div>
+            )}
+
             {/* Rendered body */}
             <SectionBody
               section={s}
               row={getRow(s.key)}
               issues={issues}
               witnesses={witnesses}
+              pastRows={PAST_YEARS.map((y) => ({ year: y, row: getRow(`past_${y}`) }))}
             />
           </section>
         ))}
@@ -440,13 +485,16 @@ function SectionBody({
   row,
   issues,
   witnesses,
+  pastRows = [],
 }: {
   section: SectionDef;
   row: SectionRow;
   issues: Issue[];
   witnesses: Witness[];
+  pastRows?: { year: string; row: SectionRow }[];
 }) {
-  const hasText = row.content.trim().length > 0;
+  // 과거 보고서 장(Ⅷ)은 자기 자신의 content가 아니라 연도별 행을 표로 보여준다
+  const hasText = section.kind !== 'archive' && row.content.trim().length > 0;
 
   return (
     <div className="space-y-3">
@@ -454,13 +502,61 @@ function SectionBody({
         <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{row.content}</p>
       )}
 
-      {row.file_url && (
+      {section.kind !== 'archive' && row.file_url && (
         <p className="text-xs text-gray-500 print:hidden">
           첨부:{' '}
           <a href={row.file_url} target="_blank" rel="noopener noreferrer" className="text-[#1F4E79] underline">
             {row.file_name ?? '원본 파일'}
           </a>
         </p>
+      )}
+
+      {section.kind === 'archive' && (
+        <div className="overflow-x-auto print:overflow-visible">
+          <table className="w-full text-sm border border-gray-400 border-collapse">
+            <thead>
+              <tr className="bg-gray-100 text-left">
+                <th className="border border-gray-400 py-2 px-3 font-semibold whitespace-nowrap w-24">연도</th>
+                <th className="border border-gray-400 py-2 px-3 font-semibold">결과보고서</th>
+                <th className="border border-gray-400 py-2 px-3 font-semibold whitespace-nowrap w-20">형식</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pastRows.map(({ year, row: r }) => {
+                const ext = r.file_name?.split('.').pop()?.toUpperCase() ?? '';
+                return (
+                  <tr key={year} className="align-top">
+                    <td className="border border-gray-400 py-2 px-3 font-medium text-gray-800 whitespace-nowrap">
+                      {year}년도
+                    </td>
+                    <td className="border border-gray-400 py-2 px-3">
+                      {r.file_url ? (
+                        <a
+                          href={r.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#1F4E79] underline"
+                        >
+                          {r.file_name ?? `${year}년도 행정사무감사 결과보고서`}
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">
+                          {r.content.trim() || '등록된 보고서가 없습니다.'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="border border-gray-400 py-2 px-3 text-gray-600 whitespace-nowrap">
+                      {ext || '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="text-xs text-gray-400 mt-2">
+            출처: 경기도의회 회의록시스템(kms.ggc.go.kr) — 상임위원회 회의록 부록
+          </p>
+        </div>
       )}
 
       {section.kind === 'issues' && (
