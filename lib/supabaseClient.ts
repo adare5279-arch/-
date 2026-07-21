@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { cachedFetch } from "./queryCache";
 
 // 아래 두 값은 브라우저에 공개되도록 설계된 값(NEXT_PUBLIC_, anon 키)입니다.
 // 로그인 없는 앱이라 anon 키는 RLS 정책으로만 보호되며 공개돼도 무방합니다.
@@ -12,4 +13,7 @@ const DEFAULT_ANON_KEY =
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
 
-export const supabase = createClient(url, anonKey);
+// 조회 응답은 짧게 캐시한다(화면 재방문 시 즉시 표시). 쓰기·실시간 변경 시 무효화됨.
+export const supabase = createClient(url, anonKey, {
+  global: { fetch: cachedFetch },
+});

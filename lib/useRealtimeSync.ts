@@ -6,6 +6,7 @@
 // (대상 테이블은 supabase_realtime publication에 등록되어 있어야 한다.)
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
+import { invalidateQueryCache } from './queryCache';
 
 type Opts = {
   table: string;
@@ -31,7 +32,11 @@ export function useRealtimeSync({ table, committee, onChange, enabled = true }: 
         () => {
           setLastEventAt(Date.now());
           if (timer) clearTimeout(timer);
-          timer = setTimeout(() => cbRef.current(), 400); // 연속 변경 디바운스
+          timer = setTimeout(() => {
+            // 다른 사용자의 변경이므로 캐시를 버리고 새로 읽는다
+            invalidateQueryCache(table);
+            cbRef.current();
+          }, 400); // 연속 변경 디바운스
         },
       )
       .subscribe((status) => setLive(status === 'SUBSCRIBED'));

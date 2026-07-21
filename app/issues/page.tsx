@@ -138,6 +138,7 @@ export default function IssuesPage() {
   });
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);

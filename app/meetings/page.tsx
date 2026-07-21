@@ -20,6 +20,7 @@ export default function MeetingsPage() {
   const [stmtCounts, setStmtCounts] = useState<Map<number, number>>(new Map());
 
   useEffect(() => {
+    if (!committee) return;
     async function fetchMeetings() {
       setLoading(true);
       const { data, error } = await supabase

@@ -40,6 +40,7 @@ export default function DeptPage() {
   }, [committee]);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     (async () => {
       setLoading(true);

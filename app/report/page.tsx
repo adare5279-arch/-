@@ -86,6 +86,7 @@ export default function ReportPage() {
   }, [committee]);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);

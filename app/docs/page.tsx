@@ -113,13 +113,16 @@ export default function DocsPage() {
   });
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);
+      // 자료요구까지 한 번에 병렬로 — 순차 호출하면 왕복이 한 번 더 늘어난다
       const [memRes, deptRes, issRes] = await Promise.all([
         supabase.from('members').select('*').eq('committee', committee).order('id'),
         supabase.from('departments').select('*').eq('committee', committee).order('name'),
         supabase.from('issues').select('request_id').eq('committee', committee),
+        fetchRequests(),
       ]);
       if (cancelled) return;
       setMembers((memRes.data as Member[]) ?? []);
@@ -129,8 +132,7 @@ export default function DocsPage() {
         if (row.request_id != null) counts.set(row.request_id, (counts.get(row.request_id) ?? 0) + 1);
       }
       setIssueCounts(counts);
-      await fetchRequests();
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     }
     load();
     return () => { cancelled = true; };

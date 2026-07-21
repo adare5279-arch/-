@@ -5,6 +5,8 @@
 // 반환 형태는 supabase와 동일하게 { data, error } 라서 기존 호출부의
 // `const { error } = await ...` 패턴을 그대로 쓸 수 있다.
 
+import { invalidateQueryCache } from './queryCache';
+
 export type WriteResult<T = unknown> = {
   data: T | null;
   error: { message: string } | null;
@@ -21,6 +23,9 @@ async function postData(payload: unknown): Promise<WriteResult> {
     if (!res.ok || json.error) {
       return { data: null, error: { message: json.error ?? `요청 실패(${res.status})` } };
     }
+    // 방금 바꾼 테이블의 조회 캐시를 버려야 호출부의 refetch가 새 값을 받는다.
+    const table = (payload as { table?: string })?.table;
+    invalidateQueryCache(table);
     return { data: json.data, error: null };
   } catch (e) {
     return { data: null, error: { message: String(e) } };

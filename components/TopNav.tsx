@@ -107,7 +107,7 @@ export default function TopNav() {
         위원회
       </span>
       <select
-        value={committee}
+        value={committee || COMMITTEES[0]}
         onChange={(e) => setCommittee(e.target.value)}
         className="rounded px-3 py-2 text-base font-medium bg-white text-gray-900 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1F4E79]/40 max-w-[14rem]"
       >

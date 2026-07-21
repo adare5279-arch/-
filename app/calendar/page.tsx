@@ -69,6 +69,7 @@ export default function CalendarPage() {
   }, [committee]);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);

@@ -94,6 +94,7 @@ export default function WitnessesPage() {
   }, [committee]);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     (async () => {
       setLoading(true);

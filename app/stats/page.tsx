@@ -29,6 +29,7 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);

@@ -91,6 +91,7 @@ export default function BudgetPage() {
   }, [committee]);
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);

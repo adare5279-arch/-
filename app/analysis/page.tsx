@@ -78,6 +78,7 @@ export default function AnalysisPage() {
   const [regState, setRegState] = useState<Record<string, 'saving' | 'done'>>({});
 
   useEffect(() => {
+    if (!committee) return;
     let cancelled = false;
     async function load() {
       setLoading(true);
