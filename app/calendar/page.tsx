@@ -14,8 +14,9 @@ type CalEvent = {
   kind: string;
   color: string;
   overdue?: boolean;
-  source: 'meeting' | 'deadline' | 'custom';
+  source: 'meeting' | 'deadline' | 'custom' | 'ggc';
   eventId?: number;
+  href?: string; // GGC 일정: 클릭 시 열 원본 링크
 };
 
 const KIND_COLOR: Record<string, string> = {
@@ -24,7 +25,12 @@ const KIND_COLOR: Record<string, string> = {
   현장방문: '#B45309',
   일정: '#6A1B9A',
   마감: '#C62828',
+  의정: '#0F766E', // 경기도의회 의정캘린더(기본)
 };
+
+// GGC 의정캘린더 API 응답
+type GgcItem = { code: string; short: string; committee: string | null };
+type GgcDay = { date: string; items: GgcItem[] };
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -59,6 +65,13 @@ export default function CalendarPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // GGC 의정캘린더(기본 일정) — 현재 보고 있는 달을 서버 API로 가져온다
+  const [ggcDays, setGgcDays] = useState<GgcDay[]>([]);
+  const [ggcLoading, setGgcLoading] = useState(false);
+  const [ggcSourceUrl, setGgcSourceUrl] = useState<string | null>(null);
+  // 'committee' = 현재 위원회(+본회의)만, 'all' = 전체 위원회
+  const [ggcScope, setGgcScope] = useState<'committee' | 'all'>('committee');
+
   const fetchEvents = useCallback(async () => {
     const { data } = await supabase
       .from('schedule_events')
@@ -88,6 +101,36 @@ export default function CalendarPage() {
     return () => { cancelled = true; };
   }, [committee]);
 
+  // 보고 있는 달이 바뀔 때마다 GGC 의정캘린더를 불러온다 (위원회와 무관하게 월 단위 캐시)
+  useEffect(() => {
+    let cancelled = false;
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth() + 1;
+    (async () => {
+      setGgcLoading(true);
+      try {
+        const res = await fetch(`/api/ggc-schedule?year=${year}&month=${month}`);
+        const json = (await res.json()) as {
+          days?: GgcDay[];
+          sourceUrl?: string | null;
+        };
+        if (cancelled) return;
+        setGgcDays(json.days ?? []);
+        setGgcSourceUrl(json.sourceUrl ?? null);
+      } catch {
+        if (!cancelled) {
+          setGgcDays([]);
+          setGgcSourceUrl(null);
+        }
+      } finally {
+        if (!cancelled) setGgcLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cursor]);
+
   const today = startOfDay(new Date());
 
   // 모든 이벤트를 날짜별로 집계
@@ -98,6 +141,28 @@ export default function CalendarPage() {
       arr.push(e);
       map.set(e.date, arr);
     };
+
+    // GGC 의정캘린더(기본) — 위원회 필터 적용 후 날짜별로 추가
+    for (const d of ggcDays) {
+      for (const it of d.items) {
+        const isPlenary = it.code === 'A011'; // 본회의는 위원회 무관
+        if (
+          ggcScope === 'committee' &&
+          !isPlenary &&
+          it.committee !== committee
+        ) {
+          continue;
+        }
+        push({
+          date: d.date,
+          label: it.short,
+          kind: '의정',
+          color: KIND_COLOR['의정'],
+          source: 'ggc',
+          href: `https://www.ggc.go.kr/site/main/schedule/list/${d.date}/ALL`,
+        });
+      }
+    }
 
     for (const m of meetings) {
       if (!m.date) continue;
@@ -136,7 +201,7 @@ export default function CalendarPage() {
     }
 
     return map;
-  }, [meetings, requests, events, today]);
+  }, [meetings, requests, events, today, ggcDays, ggcScope, committee]);
 
   // 마감 알림: 미제출/부분제출/제출불가 중 마감일 기준
   const deadlineAlerts = useMemo(() => {
@@ -220,12 +285,39 @@ export default function CalendarPage() {
         <h1 className="text-xl font-bold text-[#1F4E79]">
           감사 일정{committee ? ` — ${committee}` : ''}
         </h1>
-        <button
-          onClick={() => setShowForm(s => !s)}
-          className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
-        >
-          {showForm ? '닫기' : '+ 일정 추가'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* GGC 의정캘린더 표시 범위 토글 */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            <button
+              onClick={() => setGgcScope('committee')}
+              className={`px-3 py-2 transition-colors ${
+                ggcScope === 'committee'
+                  ? 'bg-[#0F766E] text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+              title="현재 위원회와 본회의 일정만 표시"
+            >
+              현재 위원회
+            </button>
+            <button
+              onClick={() => setGgcScope('all')}
+              className={`px-3 py-2 border-l border-gray-200 transition-colors ${
+                ggcScope === 'all'
+                  ? 'bg-[#0F766E] text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+              title="전체 위원회 의정 일정 표시"
+            >
+              전체 위원회
+            </button>
+          </div>
+          <button
+            onClick={() => setShowForm(s => !s)}
+            className="rounded-lg bg-[#1F4E79] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a5f] transition-colors"
+          >
+            {showForm ? '닫기' : '+ 일정 추가'}
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -330,7 +422,12 @@ export default function CalendarPage() {
       {/* 달력 */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[#1F4E79]">{monthLabel}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-[#1F4E79]">{monthLabel}</h2>
+            {ggcLoading && (
+              <span className="text-xs text-[#0F766E]">의정캘린더 불러오는 중…</span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <button onClick={() => goMonth(-1)} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-600 hover:bg-gray-50">←</button>
             <button onClick={goToday} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">오늘</button>
@@ -387,18 +484,46 @@ export default function CalendarPage() {
                     </span>
                   </div>
                   <div className="flex flex-col gap-0.5">
-                    {dayEvents.slice(0, 4).map((e, i) => (
-                      <button
-                        key={i}
-                        onClick={e.source === 'custom' && e.eventId ? () => handleDelete(e.eventId!) : undefined}
-                        title={e.source === 'custom' ? `${e.label} (클릭하여 삭제)` : e.label}
-                        className="text-left text-[10px] leading-tight rounded px-1 py-0.5 text-white truncate"
-                        style={{ backgroundColor: e.overdue ? '#7f1d1d' : e.color }}
-                      >
-                        {e.kind === '마감' ? '⏰ ' : ''}
-                        {e.label}
-                      </button>
-                    ))}
+                    {dayEvents.slice(0, 4).map((e, i) => {
+                      const cls =
+                        'block text-left text-[10px] leading-tight rounded px-1 py-0.5 text-white truncate';
+                      const style = {
+                        backgroundColor: e.overdue ? '#7f1d1d' : e.color,
+                      };
+                      const prefix = e.kind === '마감' ? '⏰ ' : '';
+                      // GGC 의정 일정: 원본 링크로 열기
+                      if (e.source === 'ggc' && e.href) {
+                        return (
+                          <a
+                            key={i}
+                            href={e.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`${e.label} · 경기도의회 의정캘린더에서 보기`}
+                            className={`${cls} hover:opacity-90`}
+                            style={style}
+                          >
+                            {e.label}
+                          </a>
+                        );
+                      }
+                      return (
+                        <button
+                          key={i}
+                          onClick={
+                            e.source === 'custom' && e.eventId
+                              ? () => handleDelete(e.eventId!)
+                              : undefined
+                          }
+                          title={e.source === 'custom' ? `${e.label} (클릭하여 삭제)` : e.label}
+                          className={cls}
+                          style={style}
+                        >
+                          {prefix}
+                          {e.label}
+                        </button>
+                      );
+                    })}
                     {dayEvents.length > 4 && (
                       <span className="text-[10px] text-gray-400 px-1">
                         +{dayEvents.length - 4}건
@@ -421,6 +546,22 @@ export default function CalendarPage() {
           ))}
           <span className="text-gray-400">· 사용자 추가 일정은 클릭하면 삭제됩니다</span>
         </div>
+        <p className="text-xs text-gray-400">
+          기본 일정은 경기도의회{' '}
+          {ggcSourceUrl ? (
+            <a
+              href={ggcSourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#0F766E] underline"
+            >
+              의정캘린더
+            </a>
+          ) : (
+            '의정캘린더'
+          )}
+          에서 자동으로 가져옵니다. 의정 일정을 클릭하면 원본에서 세부 안건을 볼 수 있습니다.
+        </p>
       </div>
     </div>
   );
