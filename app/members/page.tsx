@@ -71,8 +71,9 @@ function MemberCard({ m }: { m: Member }) {
           alt={m.name}
           width={64}
           height={64}
+          quality={60}
           loading="lazy"
-          className="w-16 h-16 rounded-full object-cover border border-gray-200"
+          className="w-16 h-16 rounded-full object-cover border border-gray-200 bg-gray-100"
           onError={() => setShowImg(false)}
         />
       ) : (
@@ -142,8 +143,9 @@ function MemberRow({ m }: { m: Member }) {
             alt={m.name}
             width={40}
             height={40}
+            quality={60}
             loading="lazy"
-            className="w-10 h-10 rounded-full object-cover border border-gray-200"
+            className="w-10 h-10 rounded-full object-cover border border-gray-200 bg-gray-100"
             onError={() => setShowImg(false)}
           />
         ) : (

@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
     ],
     // 최적화 결과를 오래 캐시(31일) — 의원 사진은 거의 바뀌지 않음
     minimumCacheTTL: 2_678_400,
+    // 작은 원형 썸네일이라 품질 60이면 충분(용량↓). Next 16은 허용 품질을 명시해야 함.
+    qualities: [60, 75],
   },
   turbopack: {
     resolveAlias: {

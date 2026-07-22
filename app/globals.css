@@ -1,4 +1,5 @@
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+/* Pretendard 폰트는 layout의 <head>에서 preconnect + <link>로 병렬 로드한다.
+   (CSS @import는 render-blocking + 직렬 다운로드라 첫 화면을 늦춘다) */
 @import "tailwindcss";
 
 :root {
