@@ -24,7 +24,6 @@ const NAV_SECTIONS = [
       { label: '의원명부', href: '/members' },
       { label: '의원별 발언', href: '/statements' },
       { label: '회의록', href: '/meetings' },
-      { label: '인터넷 의사중계', href: '/live' },
       { label: '보도자료', href: '/press' },
       { label: '자료 정리(ZIP)', href: '/archive' },
     ],
@@ -63,6 +62,11 @@ const NAV_SECTIONS = [
       { label: '사용방법 안내', href: '/guide' },
     ],
   },
+] as const;
+
+// 드롭다운이 아닌, 상단 메뉴바에 바로 놓는 단독 메뉴(도구 옆)
+const STANDALONE_LINKS = [
+  { label: '인터넷 의사중계', href: '/live' },
 ] as const;
 
 function isItemActive(pathname: string, href: string): boolean {
@@ -251,6 +255,23 @@ export default function TopNav() {
               </div>
             );
           })}
+
+          {/* 도구 옆 단독 메뉴 (드롭다운 없이 바로 이동) */}
+          {STANDALONE_LINKS.map(({ label, href }) => {
+            const active = isItemActive(pathname, href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={[
+                  'px-5 py-3.5 text-sm font-semibold transition-colors',
+                  active ? 'bg-white/15' : 'hover:bg-white/10',
+                ].join(' ')}
+              >
+                {label}
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
@@ -282,6 +303,22 @@ export default function TopNav() {
                 })}
               </div>
             ))}
+            {/* 단독 메뉴 (모바일) */}
+            {STANDALONE_LINKS.map(({ label, href }) => {
+              const active = isItemActive(pathname, href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={[
+                    'block rounded px-3 py-2 text-sm font-semibold transition-colors',
+                    active ? 'bg-white/15 text-white' : 'text-white/90 hover:bg-white/10',
+                  ].join(' ')}
+                >
+                  {label}
+                </Link>
+              );
+            })}
           </nav>
         </div>
       )}
