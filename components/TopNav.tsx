@@ -24,6 +24,7 @@ const NAV_SECTIONS = [
       { label: '의원명부', href: '/members' },
       { label: '의원별 발언', href: '/statements' },
       { label: '회의록', href: '/meetings' },
+      { label: '인터넷 의사중계', href: '/live' },
       { label: '보도자료', href: '/press' },
       { label: '자료 정리(ZIP)', href: '/archive' },
     ],
